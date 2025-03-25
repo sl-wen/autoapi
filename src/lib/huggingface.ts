@@ -32,12 +32,76 @@ interface ApiRequestOptions {
   delay?: number;
 }
 
+// 错误信息定义
+interface ApiErrorResponse {
+  error?: {
+    code?: string;
+    message?: string;
+  };
+  message?: string;
+}
+
 // 默认API请求配置
 const DEFAULT_REQUEST_OPTIONS: ApiRequestOptions = {
   timeout: 30000, // 30秒超时
-  retries: 2,     // 最多重试2次
-  delay: 1000     // 重试间隔1秒
+  retries: 3,     // 最多重试3次
+  delay: 2000     // 重试间隔2秒
 };
+
+// 设置备用模型映射
+const FALLBACK_MODELS = {
+  summarization: [
+    'csebuetnlp/mT5_multilingual_XLSum',  // 多语言通用模型
+    'sshleifer/distilbart-cnn-12-6',      // 轻量级模型
+    'facebook/bart-large-cnn'             // 常用模型
+  ],
+  translation: [
+    'Helsinki-NLP/opus-mt-en-zh',         // 英中
+    'Helsinki-NLP/opus-mt-zh-en',         // 中英
+    't5-small'                           // 小型模型
+  ]
+};
+
+/**
+ * 解析API错误
+ * @param error 错误对象
+ * @returns 格式化的错误信息
+ */
+function parseApiError(error: unknown): Error {
+  if (error instanceof Error) {
+    let errorMessage = error.message;
+    
+    try {
+      // 尝试解析错误文本
+      if (errorMessage.includes('{') && errorMessage.includes('}')) {
+        const jsonStart = errorMessage.indexOf('{');
+        const jsonText = errorMessage.substring(jsonStart);
+        const errorData = JSON.parse(jsonText) as ApiErrorResponse;
+        
+        if (errorData.error?.code === '504' || errorMessage.includes('504')) {
+          return new Error('模型部署错误 (504): 服务器超时，请尝试其他模型或稍后重试');
+        }
+        
+        if (errorData.error?.message) {
+          return new Error(`API错误: ${errorData.error.message}`);
+        }
+      }
+      
+      // 处理特定错误
+      if (errorMessage.includes('deployment') || errorMessage.includes('504')) {
+        return new Error('模型部署错误: 服务器超时，请尝试其他模型或稍后重试');
+      }
+    } catch (e) {
+      // 解析失败，使用原始错误
+      console.warn('解析API错误失败', e);
+    }
+    
+    return error;
+  }
+  
+  // 处理非标准错误
+  return new Error(`未知错误: ${String(error)}`);
+}
 
 /**
  * 添加超时功能的Promise包装
@@ -63,7 +127,7 @@ async function withRetry<T>(
   fn: () => Promise<T>, 
   options: ApiRequestOptions = DEFAULT_REQUEST_OPTIONS
 ): Promise<T> {
-  const { retries = 2, delay = 1000, timeout = 30000 } = options;
+  const { retries = 3, delay = 2000, timeout = 30000 } = options;
   
   let lastError: Error;
   
@@ -72,21 +136,25 @@ async function withRetry<T>(
       // 首次尝试或重试
       if (attempt > 0) {
         console.log(`重试请求(${attempt}/${retries})...`);
-        // 重试前等待
-        await new Promise(resolve => setTimeout(resolve, delay * attempt));
+        // 重试前等待, 使用指数退避策略
+        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(1.5, attempt-1)));
       }
       
       // 添加超时控制
       return await withTimeout(fn(), timeout);
     } catch (error) {
-      lastError = error as Error;
+      lastError = parseApiError(error);
       console.error(`尝试 ${attempt + 1}/${retries + 1} 失败:`, lastError.message);
+      
+      // 检查是否是部署错误，如果是则可能需要尝试不同的模型而不是继续重试
+      if (lastError.message.includes('504') || 
+          lastError.message.includes('部署错误') || 
+          lastError.message.includes('deployment')) {
+        throw lastError; // 立即中断重试，转向不同模型
+      }
       
       // 如果已达到最大重试次数，抛出最后一个错误
       if (attempt === retries) {
-        if (lastError.message.includes('timeout') || lastError.message.includes('超时')) {
-          throw new Error(`API请求失败 (504) - 服务超时`);
-        }
         throw lastError;
       }
     }
@@ -244,105 +312,66 @@ export class HuggingFaceService {
    * @returns 摘要结果
    */
   public async summarize(text: string, modelName: string = 'bart-large-cnn', maxLength: number = 150, minLength: number = 30): Promise<SummaryResult> {
-    const modelConfig = this.getSummarizationModel(modelName);
+    // 创建已尝试模型的集合，避免重复尝试
+    const triedModels: Set<string> = new Set();
+    let currentModel = modelName;
     
-    try {
-      // 检测语言
-      const isChinese = HuggingFaceService.isChineseText(text);
+    // 创建备用模型列表
+    const fallbackModels = [...FALLBACK_MODELS.summarization];
+    if (modelName && !fallbackModels.includes(modelName)) {
+      fallbackModels.unshift(modelName); // 确保首先尝试用户指定的模型
+    }
+    
+    // 处理中文内容
+    const isChinese = HuggingFaceService.isChineseText(text);
+    if (isChinese && (currentModel === 'bart-large-cnn' || currentModel === 'pegasus')) {
+      console.log('检测到中文内容，优先使用中文摘要模型');
+      fallbackModels.unshift('mt5'); // 中文内容优先使用mt5
+    }
+    
+    let lastError: Error | null = null;
+    
+    // 逐个尝试模型直到成功
+    for (const model of fallbackModels) {
+      if (triedModels.has(model)) continue;
       
-      // 如果是中文内容，但使用的是英文模型，自动切换到中文模型
-      if (isChinese && (modelName === 'bart-large-cnn' || modelName === 'pegasus')) {
-        console.log('检测到中文内容，自动切换到中文摘要模型');
-        
-        // 自动检测是否是技术文档
-        const isTechDoc = text.includes('Firebase') || 
-                         text.includes('Firestore') || 
-                         text.includes('数据库') || 
-                         text.includes('API') ||
-                         text.includes('技术') ||
-                         text.includes('编程') ||
-                         text.includes('开发');
-        
-        // 为技术文档和普通文档选择不同的模型
-        const chineseModelId = isTechDoc 
-          ? MODELS.summarization['chinese-t5'].id
-          : MODELS.summarization['mt5'].id;
-        
-        const result = await withRetry(async () => {
-          return this.inference.summarization({
-            model: chineseModelId,
-            inputs: text,
-            parameters: {
-              max_length: maxLength,
-              min_length: minLength
-            }
-          });
-        }, this.requestOptions);
-        
-        return { summary_text: result.summary_text };
-      }
+      triedModels.add(model);
+      currentModel = model;
+      console.log(`尝试使用摘要模型: ${model}`);
       
-      // 处理特殊情况
-      if (modelName === 'uer-pegasus' || modelName === 'bert-chinese') {
-        console.log('使用替代中文摘要模型');
-        const result = await withRetry(async () => {
-          return this.inference.summarization({
-            model: MODELS.summarization['mt5'].id,
-            inputs: text,
-            parameters: {
-              max_length: maxLength,
-              min_length: minLength
-            }
-          });
-        }, this.requestOptions);
-        
-        return { summary_text: result.summary_text };
-      }
-      
-      // 使用指定的模型
-      const result = await withRetry(async () => {
-        return this.inference.summarization({
-          model: modelConfig.id,
-          inputs: text,
-          parameters: {
-            max_length: maxLength,
-            min_length: minLength
-          }
-        });
-      }, this.requestOptions);
-      
-      return { summary_text: result.summary_text };
-    } catch (error) {
-      console.error('摘要生成错误:', error);
-      // 尝试使用备用模型
-      console.log('尝试使用备用多语言模型mt5');
       try {
+        // 根据模型ID获取完整模型路径
+        const modelConfig = this.getSummarizationModel(model.includes('/') ? model : currentModel);
+        const modelId = model.includes('/') ? model : modelConfig.id;
+        
         const result = await withRetry(async () => {
           return this.inference.summarization({
-            model: MODELS.summarization['mt5'].id,
+            model: modelId,
             inputs: text,
             parameters: {
               max_length: maxLength,
               min_length: minLength
             }
           });
-        }, {
-          ...this.requestOptions,
-          timeout: 45000,  // 增加备用模型的超时时间
-          retries: 1       // 减少重试次数，因为这已经是备用模型
-        });
+        }, this.requestOptions);
         
         return { summary_text: result.summary_text };
-      } catch (backupError) {
-        console.error('备用摘要模型也失败:', backupError);
-        // 如果所有尝试都失败，返回一个简单的摘要
-        const firstChars = text.slice(0, Math.min(text.length, 100)) + '...';
-        return { 
-          summary_text: `摘要生成失败，请尝试其他模型。原文开头: ${firstChars}`,
-          error: (backupError as Error).message
-        };
+      } catch (error) {
+        lastError = parseApiError(error as Error);
+        console.error(`模型 ${model} 失败:`, lastError.message);
+        
+        // 如果不是部署或超时错误，可能是其他原因，尝试不同模型
+        continue;
       }
     }
+    
+    // 如果所有模型都失败，返回错误信息
+    console.error('所有摘要模型尝试失败');
+    const firstChars = text.slice(0, Math.min(text.length, 100)) + '...';
+    return { 
+      summary_text: `摘要生成失败，服务暂时不可用(${lastError?.message || '未知错误'})。原文开头: ${firstChars}`,
+      error: lastError?.message || '摘要生成失败'
+    };
   }
 
   /**
@@ -353,82 +382,65 @@ export class HuggingFaceService {
    * @returns 翻译结果
    */
   public async translate(text: string, sourceLanguage: Language = 'auto', targetLanguage: Language = 'zh'): Promise<TranslationResponse> {
-    const modelConfig = this.getTranslationModel(sourceLanguage, targetLanguage);
-
-    try {
-      // 如果源语言是auto，尝试检测是否是中文
-      if (sourceLanguage === 'auto') {
-        const isChinese = HuggingFaceService.isChineseText(text);
-        if (isChinese && targetLanguage === 'en') {
-          // 如果是中文到英文，使用专门的中英翻译模型
-          const result = await withRetry(async () => {
-            return this.inference.translation({
-              model: MODELS.translation['zh-to-en'].id,
-              inputs: text
-            });
-          }, this.requestOptions);
-          
-          return { translation_text: result.translation_text };
-        } else if (!isChinese && targetLanguage === 'zh') {
-          // 如果是英文到中文，使用专门的英中翻译模型
-          const result = await withRetry(async () => {
-            return this.inference.translation({
-              model: MODELS.translation['en-to-zh'].id,
-              inputs: text
-            });
-          }, this.requestOptions);
-          
-          return { translation_text: result.translation_text };
-        }
-      }
-
-      // 使用多语言模型进行翻译
-      const response = await withRetry(async () => {
-        return this.inference.translation({
-          model: modelConfig.id,
-          inputs: text,
-          parameters: {
-            src_lang: sourceLanguage === 'auto' ? 'en' : sourceLanguage.toUpperCase(),
-            tgt_lang: targetLanguage.toUpperCase()
-          }
-        });
-      }, this.requestOptions);
-
-      return { translation_text: response.translation_text };
-    } catch (error) {
-      console.error('翻译错误:', error);
-      
-      // 尝试使用备用翻译模型
-      console.log('尝试使用备用翻译模型');
-      
-      try {
-        // 根据目标语言选择合适的备用模型
-        const fallbackModelId = targetLanguage === 'zh' 
-          ? MODELS.translation['en-to-zh'].id
-          : targetLanguage === 'en'
-            ? MODELS.translation['zh-to-en'].id
-            : MODELS.translation['multilingual'].id;
-        
-        const result = await withRetry(async () => {
-          return this.inference.translation({
-            model: fallbackModelId,
-            inputs: text
-          });
-        }, {
-          ...this.requestOptions,
-          timeout: 45000,  // 增加备用模型的超时时间
-          retries: 1       // 减少重试次数，因为这已经是备用模型
-        });
-        
-        return { translation_text: result.translation_text };
-      } catch (backupError) {
-        console.error('备用翻译模型也失败:', backupError);
-        // 如果所有尝试都失败，返回一个提示信息
-        return { 
-          translation_text: `翻译失败，请尝试其他模型或稍后再试。Original text: ${text.slice(0, 50)}...` 
-        };
+    // 创建已尝试模型集合
+    const triedModels: Set<string> = new Set();
+    
+    // 构建备用模型列表
+    const fallbackModels: string[] = [...FALLBACK_MODELS.translation];
+    
+    // 根据语言对确定特定模型
+    if (sourceLanguage === 'en' && targetLanguage === 'zh') {
+      fallbackModels.unshift('Helsinki-NLP/opus-mt-en-zh');
+    } else if (sourceLanguage === 'zh' && targetLanguage === 'en') {
+      fallbackModels.unshift('Helsinki-NLP/opus-mt-zh-en');
+    } else {
+      fallbackModels.unshift('facebook/m2m100_418M');
+    }
+    
+    // 自动检测语言
+    if (sourceLanguage === 'auto') {
+      const isChinese = HuggingFaceService.isChineseText(text);
+      if (isChinese && targetLanguage === 'en') {
+        fallbackModels.unshift('Helsinki-NLP/opus-mt-zh-en');
+      } else if (!isChinese && targetLanguage === 'zh') {
+        fallbackModels.unshift('Helsinki-NLP/opus-mt-en-zh');
       }
     }
+    
+    let lastError: Error | null = null;
+    
+    // 逐个尝试模型
+    for (const modelId of fallbackModels) {
+      if (triedModels.has(modelId)) continue;
+      
+      triedModels.add(modelId);
+      console.log(`尝试使用翻译模型: ${modelId}`);
+      
+      try {
+        const result = await withRetry(async () => {
+          return this.inference.translation({
+            model: modelId,
+            inputs: text,
+            parameters: sourceLanguage !== 'auto' && modelId.includes('m2m100') ? {
+              src_lang: sourceLanguage.toUpperCase(),
+              tgt_lang: targetLanguage.toUpperCase()
+            } : undefined
+          });
+        }, this.requestOptions);
+        
+        return { translation_text: result.translation_text };
+      } catch (error) {
+        lastError = parseApiError(error as Error);
+        console.error(`模型 ${modelId} 失败:`, lastError.message);
+        continue;
+      }
+    }
+    
+    // 如果所有模型都失败，返回错误提示
+    const shortText = text.length > 50 ? text.slice(0, 50) + '...' : text;
+    return { 
+      translation_text: `翻译失败，服务暂时不可用(${lastError?.message || '未知错误'})。原文: ${shortText}` 
+    };
   }
 
   /**
