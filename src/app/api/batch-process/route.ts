@@ -26,10 +26,15 @@ interface TranslationResult {
 interface BatchProcessRequest {
   articles: string[];
   task?: 'summarize' | 'translate' | 'both';
-  sourceLanguage?: Language;
-  targetLanguage?: Language;
+  sourceLanguage?: string;
+  targetLanguage?: string;
   summaryModel?: string;
   maxLength?: number;
+}
+
+// 验证语言类型
+function isValidLanguage(lang: string): lang is Language {
+  return ['auto', 'en', 'zh', 'fr', 'de', 'es', 'ru', 'ja', 'ko'].includes(lang);
 }
 
 export async function POST(request: NextRequest) {
@@ -37,11 +42,22 @@ export async function POST(request: NextRequest) {
     const { 
       articles, 
       task = 'summarize', 
-      sourceLanguage = 'auto', 
-      targetLanguage = 'zh',
+      sourceLanguage: srcLang = 'auto', 
+      targetLanguage: tgtLang = 'zh',
       summaryModel = 'mt5',
       maxLength = 150 
     }: BatchProcessRequest = await request.json();
+
+    // 验证语言参数
+    if (!isValidLanguage(srcLang) || !isValidLanguage(tgtLang)) {
+      return NextResponse.json(
+        { error: '不支持的语言类型' },
+        { status: 400 }
+      );
+    }
+
+    const sourceLanguage = srcLang as Language;
+    const targetLanguage = tgtLang as Language;
 
     if (!articles || !Array.isArray(articles) || articles.length === 0) {
       return NextResponse.json(
@@ -97,8 +113,8 @@ export async function POST(request: NextRequest) {
             // 翻译原文
             const translationResult = await hfService.translate(
               article,
-              sourceLanguage as Language,
-              targetLanguage as Language
+              sourceLanguage,
+              targetLanguage
             );
             result.translatedText = translationResult.translation_text;
           } catch (error: unknown) {
@@ -128,8 +144,8 @@ export async function POST(request: NextRequest) {
             try {
               const summaryTranslationResult = await hfService.translate(
                 result.summary,
-                'en' as Language, // 摘要模型输出通常是英文
-                targetLanguage as Language
+                'en',
+                targetLanguage
               );
               result.translatedSummary = summaryTranslationResult.translation_text;
             } catch (error: unknown) {

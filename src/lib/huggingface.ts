@@ -20,8 +20,9 @@ interface TranslationResponse {
 }
 
 // 摘要结果类型
-interface SummaryResult {
+export interface SummaryResult {
   summary_text: string;
+  [key: string]: unknown;
 }
 
 // 模型映射配置
