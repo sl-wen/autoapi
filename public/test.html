@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            margin-bottom: 10px;
+            padding: 8px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        select {
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        .result {
+            white-space: pre-wrap;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #fff;
+            min-height: 100px;
+        }
+        .original-result {
+            white-space: pre-wrap;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            min-height: 50px;
+        }
+        .options {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hugging Face API 测试</h1>
+    <div style="background-color: #ffefea; padding: 10px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #ff6347;">
+        <p><strong>提示：</strong> 
+            1. 对于更高质量的摘要，建议在 .env.local 文件中配置 OpenAI API 密钥<br>
+            2. 我们已更新中文模型库，推荐使用"Chinese T5"和"Multi-lingual MT5"模型<br>
+            3. 原先的部分中文模型存在兼容性问题，现已替换为更稳定的选项
+        </p>
+    </div>
+    
+    <div class="container">
+        <!-- 文章摘要 -->
+        <div class="card">
+            <h2>文章摘要</h2>
+            <textarea id="summarizeText" placeholder="请输入需要摘要的文章内容..."></textarea>
+            <div class="options">
+                <select id="summaryModel">
+                    <option value="huggingface:chinese-t5">HuggingFace - Chinese T5 (中文技术文档)</option>
+                    <option value="huggingface:chinese-distilbart">HuggingFace - Chinese BART (中文)</option>
+                    <option value="huggingface:mt5">HuggingFace - MT5 (多语言，推荐)</option>
+                    <option value="huggingface:bart-large-cnn">HuggingFace - BART-Large-CNN (英文)</option>
+                    <option value="huggingface:pegasus">HuggingFace - Pegasus (英文简洁)</option>
+                    <option value="huggingface:distilbart-cnn">HuggingFace - DistilBART-CNN (轻量级)</option>
+                    <option value="huggingface:t5-base">HuggingFace - T5-Base (通用)</option>
+                    <option value="openai">OpenAI (推荐)</option>
+                </select>
+                <select id="summaryLanguage">
+                    <option value="zh">中文</option>
+                    <option value="en">英文</option>
+                </select>
+                <input type="number" id="maxLength" value="150" placeholder="最大长度" style="width: 100px;">
+            </div>
+            <button onclick="summarizeArticle()">生成摘要</button>
+            <h3>结果:</h3>
+            <div id="summaryResult" class="result"></div>
+            <div id="originalSummary" class="original-result" style="margin-top: 10px; font-size: 0.9em; color: #666; display: none;">
+                <h4>原始摘要 (翻译前):</h4>
+                <div id="originalSummaryText" class="result"></div>
+            </div>
+        </div>
+
+        <!-- AI翻译 -->
+        <div class="card">
+            <h2>AI翻译</h2>
+            <textarea id="translateText" placeholder="请输入需要翻译的文本内容..."></textarea>
+            <div class="options">
+                <select id="sourceLanguage">
+                    <option value="auto">自动检测</option>
+                    <option value="en">英文</option>
+                    <option value="zh">中文</option>
+                    <option value="fr">法文</option>
+                    <option value="de">德文</option>
+                    <option value="es">西班牙文</option>
+                    <option value="ru">俄文</option>
+                    <option value="ja">日文</option>
+                    <option value="ko">韩文</option>
+                </select>
+                <select id="targetLanguage">
+                    <option value="zh">中文</option>
+                    <option value="en">英文</option>
+                    <option value="fr">法文</option>
+                    <option value="de">德文</option>
+                    <option value="es">西班牙文</option>
+                    <option value="ru">俄文</option>
+                    <option value="ja">日文</option>
+                    <option value="ko">韩文</option>
+                </select>
+            </div>
+            <button onclick="translateText()">翻译文本</button>
+            <h3>结果:</h3>
+            <div id="translateResult" class="result"></div>
+        </div>
+
+        <!-- 批量处理 -->
+        <div class="card">
+            <h2>批量处理</h2>
+            <textarea id="batchText" placeholder="请输入多篇文章，每篇文章用三个连续的星号(***)分隔..."></textarea>
+            <div class="options">
+                <select id="batchTask">
+                    <option value="summarize">仅摘要</option>
+                    <option value="translate">仅翻译</option>
+                    <option value="both">摘要和翻译</option>
+                </select>
+                <select id="batchSourceLanguage">
+                    <option value="auto">自动检测</option>
+                    <option value="en">英文</option>
+                    <option value="zh">中文</option>
+                </select>
+                <select id="batchTargetLanguage">
+                    <option value="zh">中文</option>
+                    <option value="en">英文</option>
+                </select>
+            </div>
+            <button onclick="batchProcess()">批量处理</button>
+            <h3>结果:</h3>
+            <div id="batchResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        async function summarizeArticle() {
+            const text = document.getElementById('summarizeText').value;
+            const model = document.getElementById('summaryModel').value;
+            const language = document.getElementById('summaryLanguage').value;
+            const maxLength = document.getElementById('maxLength').value;
+
+            if (!text) {
+                alert('请输入需要摘要的文章内容');
+                return;
+            }
+
+            document.getElementById('summaryResult').textContent = '处理中...';
+            document.getElementById('originalSummary').style.display = 'none';
+
+            try {
+                const response = await fetch('/api/summarize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        text, 
+                        model, 
+                        language, 
+                        maxLength: parseInt(maxLength),
+                        context: text.includes('Firebase') || text.includes('Firestore') 
+                            ? 'tech_docs' 
+                            : 'general'
+                    }),
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('summaryResult').textContent = `错误: ${data.error}`;
+                } else {
+                    document.getElementById('summaryResult').textContent = data.summary;
+                    
+                    // 显示原始摘要（如果有）
+                    if (data.originalSummary) {
+                        document.getElementById('originalSummaryText').textContent = data.originalSummary;
+                        document.getElementById('originalSummary').style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                document.getElementById('summaryResult').textContent = `请求错误: ${error.message}`;
+            }
+        }
+
+        async function translateText() {
+            const text = document.getElementById('translateText').value;
+            const sourceLanguage = document.getElementById('sourceLanguage').value;
+            const targetLanguage = document.getElementById('targetLanguage').value;
+
+            if (!text) {
+                alert('请输入需要翻译的文本内容');
+                return;
+            }
+
+            document.getElementById('translateResult').textContent = '处理中...';
+
+            try {
+                const response = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text, sourceLanguage, targetLanguage }),
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('translateResult').textContent = `错误: ${data.error}`;
+                } else {
+                    document.getElementById('translateResult').textContent = data.translatedText;
+                }
+            } catch (error) {
+                document.getElementById('translateResult').textContent = `请求错误: ${error.message}`;
+            }
+        }
+
+        async function batchProcess() {
+            const batchText = document.getElementById('batchText').value;
+            const task = document.getElementById('batchTask').value;
+            const sourceLanguage = document.getElementById('batchSourceLanguage').value;
+            const targetLanguage = document.getElementById('batchTargetLanguage').value;
+
+            if (!batchText) {
+                alert('请输入需要处理的文章内容');
+                return;
+            }
+
+            // 分割多篇文章
+            const articles = batchText.split('***').map(article => article.trim()).filter(Boolean);
+
+            if (articles.length === 0) {
+                alert('无法识别文章，请确保使用***分隔不同文章');
+                return;
+            }
+
+            document.getElementById('batchResult').textContent = '处理中...';
+
+            try {
+                const response = await fetch('/api/batch-process', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        articles, 
+                        task, 
+                        sourceLanguage, 
+                        targetLanguage,
+                        maxLength: 150,
+                    }),
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('batchResult').textContent = `错误: ${data.error}`;
+                } else {
+                    // 格式化批量处理结果
+                    let resultText = '';
+                    data.results.forEach((result, index) => {
+                        resultText += `=== 文章 ${index + 1} ===\n`;
+                        
+                        if (result.summary) {
+                            resultText += `摘要: ${result.summary}\n\n`;
+                        }
+                        
+                        if (result.translatedText) {
+                            resultText += `翻译: ${result.translatedText}\n\n`;
+                        }
+                        
+                        if (result.translatedSummary) {
+                            resultText += `摘要的翻译: ${result.translatedSummary}\n\n`;
+                        }
+                        
+                        resultText += '------------------------\n\n';
+                    });
+                    
+                    document.getElementById('batchResult').textContent = resultText;
+                }
+            } catch (error) {
+                document.getElementById('batchResult').textContent = `请求错误: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html> 
