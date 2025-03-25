@@ -14,15 +14,86 @@ interface ModelConfig {
   description?: string;
 }
 
+// 摘要结果类型
+export interface SummaryResult {
+  summary_text: string;
+  [key: string]: unknown;
+}
+
 // 翻译结果类型
 interface TranslationResponse {
   translation_text: string;
 }
 
-// 摘要结果类型
-export interface SummaryResult {
-  summary_text: string;
-  [key: string]: unknown;
+// API请求配置
+interface ApiRequestOptions {
+  timeout?: number;
+  retries?: number;
+  delay?: number;
+}
+
+// 默认API请求配置
+const DEFAULT_REQUEST_OPTIONS: ApiRequestOptions = {
+  timeout: 30000, // 30秒超时
+  retries: 2,     // 最多重试2次
+  delay: 1000     // 重试间隔1秒
+};
+
+/**
+ * 添加超时功能的Promise包装
+ * @param promise 原始Promise
+ * @param timeout 超时时间(毫秒)
+ * @returns 带超时控制的Promise
+ */
+async function withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`请求超时 (${timeout}ms)`)), timeout);
+  });
+  
+  return Promise.race([promise, timeoutPromise]);
+}
+
+/**
+ * 带重试功能的异步函数包装
+ * @param fn 要执行的异步函数
+ * @param options 重试选项
+ * @returns 带重试功能的异步函数结果
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>, 
+  options: ApiRequestOptions = DEFAULT_REQUEST_OPTIONS
+): Promise<T> {
+  const { retries = 2, delay = 1000, timeout = 30000 } = options;
+  
+  let lastError: Error;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      // 首次尝试或重试
+      if (attempt > 0) {
+        console.log(`重试请求(${attempt}/${retries})...`);
+        // 重试前等待
+        await new Promise(resolve => setTimeout(resolve, delay * attempt));
+      }
+      
+      // 添加超时控制
+      return await withTimeout(fn(), timeout);
+    } catch (error) {
+      lastError = error as Error;
+      console.error(`尝试 ${attempt + 1}/${retries + 1} 失败:`, lastError.message);
+      
+      // 如果已达到最大重试次数，抛出最后一个错误
+      if (attempt === retries) {
+        if (lastError.message.includes('timeout') || lastError.message.includes('超时')) {
+          throw new Error(`API请求失败 (504) - 服务超时`);
+        }
+        throw lastError;
+      }
+    }
+  }
+  
+  // 这一行应该不会执行到，但TypeScript要求返回值
+  throw lastError!;
 }
 
 // 模型映射配置
@@ -117,6 +188,7 @@ const MODELS: Record<ModelTask, Record<string, ModelConfig>> = {
 export class HuggingFaceService {
   private inference: HfInference;
   private static instance: HuggingFaceService;
+  private requestOptions: ApiRequestOptions;
 
   private constructor() {
     const apiKey = process.env.HUGGINGFACE_API_KEY;
@@ -124,6 +196,11 @@ export class HuggingFaceService {
       throw new Error('Hugging Face API密钥未设置');
     }
     this.inference = new HfInference(apiKey);
+    this.requestOptions = {
+      timeout: Number(process.env.HF_REQUEST_TIMEOUT) || DEFAULT_REQUEST_OPTIONS.timeout,
+      retries: Number(process.env.HF_REQUEST_RETRIES) || DEFAULT_REQUEST_OPTIONS.retries,
+      delay: Number(process.env.HF_REQUEST_DELAY) || DEFAULT_REQUEST_OPTIONS.delay
+    };
   }
 
   public static getInstance(): HuggingFaceService {
@@ -191,54 +268,80 @@ export class HuggingFaceService {
           ? MODELS.summarization['chinese-t5'].id
           : MODELS.summarization['mt5'].id;
         
-        const result = await this.inference.summarization({
-          model: chineseModelId,
-          inputs: text,
-          parameters: {
-            max_length: maxLength,
-            min_length: minLength
-          }
-        });
+        const result = await withRetry(async () => {
+          return this.inference.summarization({
+            model: chineseModelId,
+            inputs: text,
+            parameters: {
+              max_length: maxLength,
+              min_length: minLength
+            }
+          });
+        }, this.requestOptions);
+        
         return { summary_text: result.summary_text };
       }
       
       // 处理特殊情况
       if (modelName === 'uer-pegasus' || modelName === 'bert-chinese') {
         console.log('使用替代中文摘要模型');
-        const result = await this.inference.summarization({
-          model: MODELS.summarization['mt5'].id,
+        const result = await withRetry(async () => {
+          return this.inference.summarization({
+            model: MODELS.summarization['mt5'].id,
+            inputs: text,
+            parameters: {
+              max_length: maxLength,
+              min_length: minLength
+            }
+          });
+        }, this.requestOptions);
+        
+        return { summary_text: result.summary_text };
+      }
+      
+      // 使用指定的模型
+      const result = await withRetry(async () => {
+        return this.inference.summarization({
+          model: modelConfig.id,
           inputs: text,
           parameters: {
             max_length: maxLength,
             min_length: minLength
           }
         });
-        return { summary_text: result.summary_text };
-      }
+      }, this.requestOptions);
       
-      // 使用指定的模型
-      const result = await this.inference.summarization({
-        model: modelConfig.id,
-        inputs: text,
-        parameters: {
-          max_length: maxLength,
-          min_length: minLength
-        }
-      });
       return { summary_text: result.summary_text };
     } catch (error) {
       console.error('摘要生成错误:', error);
       // 尝试使用备用模型
       console.log('尝试使用备用多语言模型mt5');
-      const result = await this.inference.summarization({
-        model: MODELS.summarization['mt5'].id,
-        inputs: text,
-        parameters: {
-          max_length: maxLength,
-          min_length: minLength
-        }
-      });
-      return { summary_text: result.summary_text };
+      try {
+        const result = await withRetry(async () => {
+          return this.inference.summarization({
+            model: MODELS.summarization['mt5'].id,
+            inputs: text,
+            parameters: {
+              max_length: maxLength,
+              min_length: minLength
+            }
+          });
+        }, {
+          ...this.requestOptions,
+          timeout: 45000,  // 增加备用模型的超时时间
+          retries: 1       // 减少重试次数，因为这已经是备用模型
+        });
+        
+        return { summary_text: result.summary_text };
+      } catch (backupError) {
+        console.error('备用摘要模型也失败:', backupError);
+        // 如果所有尝试都失败，返回一个简单的摘要
+        const firstChars = text.slice(0, Math.min(text.length, 100)) + '...';
+        return { 
+          summary_text: `摘要生成失败，请尝试其他模型。原文开头: ${firstChars}`,
+          error: (backupError as Error).message
+        };
+      }
     }
   }
 
@@ -258,30 +361,38 @@ export class HuggingFaceService {
         const isChinese = HuggingFaceService.isChineseText(text);
         if (isChinese && targetLanguage === 'en') {
           // 如果是中文到英文，使用专门的中英翻译模型
-          const result = await this.inference.translation({
-            model: MODELS.translation['zh-to-en'].id,
-            inputs: text
-          });
+          const result = await withRetry(async () => {
+            return this.inference.translation({
+              model: MODELS.translation['zh-to-en'].id,
+              inputs: text
+            });
+          }, this.requestOptions);
+          
           return { translation_text: result.translation_text };
         } else if (!isChinese && targetLanguage === 'zh') {
           // 如果是英文到中文，使用专门的英中翻译模型
-          const result = await this.inference.translation({
-            model: MODELS.translation['en-to-zh'].id,
-            inputs: text
-          });
+          const result = await withRetry(async () => {
+            return this.inference.translation({
+              model: MODELS.translation['en-to-zh'].id,
+              inputs: text
+            });
+          }, this.requestOptions);
+          
           return { translation_text: result.translation_text };
         }
       }
 
       // 使用多语言模型进行翻译
-      const response = await this.inference.translation({
-        model: modelConfig.id,
-        inputs: text,
-        parameters: {
-          src_lang: sourceLanguage === 'auto' ? 'en' : sourceLanguage.toUpperCase(),
-          tgt_lang: targetLanguage.toUpperCase()
-        }
-      });
+      const response = await withRetry(async () => {
+        return this.inference.translation({
+          model: modelConfig.id,
+          inputs: text,
+          parameters: {
+            src_lang: sourceLanguage === 'auto' ? 'en' : sourceLanguage.toUpperCase(),
+            tgt_lang: targetLanguage.toUpperCase()
+          }
+        });
+      }, this.requestOptions);
 
       return { translation_text: response.translation_text };
     } catch (error) {
@@ -290,18 +401,33 @@ export class HuggingFaceService {
       // 尝试使用备用翻译模型
       console.log('尝试使用备用翻译模型');
       
-      // 根据目标语言选择合适的备用模型
-      const fallbackModelId = targetLanguage === 'zh' 
-        ? MODELS.translation['en-to-zh'].id
-        : targetLanguage === 'en'
-          ? MODELS.translation['zh-to-en'].id
-          : MODELS.translation['multilingual'].id;
-      
-      const result = await this.inference.translation({
-        model: fallbackModelId,
-        inputs: text
-      });
-      return { translation_text: result.translation_text };
+      try {
+        // 根据目标语言选择合适的备用模型
+        const fallbackModelId = targetLanguage === 'zh' 
+          ? MODELS.translation['en-to-zh'].id
+          : targetLanguage === 'en'
+            ? MODELS.translation['zh-to-en'].id
+            : MODELS.translation['multilingual'].id;
+        
+        const result = await withRetry(async () => {
+          return this.inference.translation({
+            model: fallbackModelId,
+            inputs: text
+          });
+        }, {
+          ...this.requestOptions,
+          timeout: 45000,  // 增加备用模型的超时时间
+          retries: 1       // 减少重试次数，因为这已经是备用模型
+        });
+        
+        return { translation_text: result.translation_text };
+      } catch (backupError) {
+        console.error('备用翻译模型也失败:', backupError);
+        // 如果所有尝试都失败，返回一个提示信息
+        return { 
+          translation_text: `翻译失败，请尝试其他模型或稍后再试。Original text: ${text.slice(0, 50)}...` 
+        };
+      }
     }
   }
 
