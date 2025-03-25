@@ -247,44 +247,125 @@ export class HuggingFaceService {
    * @param targetLanguage 目标语言
    * @returns 翻译结果
    */
-  public async translate(text: string, sourceLanguage: Language = 'auto', targetLanguage: Language = 'zh') {
-    const modelConfig = this.getTranslationModel(sourceLanguage, targetLanguage);
+  public async translate(text: string, sourceLanguage: Language = 'auto', targetLanguage: Language = 'zh'): Promise<{translation_text: string}> {
+    // 选择最适合的翻译模型
+    let modelId = '';
     
-    // 由于各种模型参数问题，简化调用方式，只传入必要参数
+    // 对于中文和英文之间的翻译，我们使用特定的双语模型
+    if ((sourceLanguage === 'en' || HuggingFaceService.isChineseText(text)) && targetLanguage === 'zh') {
+      modelId = 'Helsinki-NLP/opus-mt-en-zh';
+      console.log('使用英译中模型:', modelId);
+    } else if ((sourceLanguage === 'zh' || HuggingFaceService.isChineseText(text)) && targetLanguage === 'en') {
+      modelId = 'Helsinki-NLP/opus-mt-zh-en';
+      console.log('使用中译英模型:', modelId);
+    } else {
+      // 对于其他语言组合，使用多语言模型
+      modelId = 'facebook/m2m100_418M';
+      console.log('使用多语言模型:', modelId);
+    }
+    
     try {
-      // 简单直接的调用，不传额外参数
-      console.log(`使用翻译模型: ${modelConfig.id}`);
-      return this.inference.translation({
-        model: modelConfig.id,
-        inputs: text
+      // 为Facebook多语言模型准备特殊处理
+      if (modelId === 'facebook/m2m100_418M') {
+        // 为m2m100模型，使用原始请求并明确指定目标语言
+        console.log(`使用M2M100多语言模型，目标语言: ${targetLanguage}`);
+        
+        // 需要将语言代码转换为M2M100期望的格式
+        const langCodeMap: Record<string, string> = {
+          'en': 'en',
+          'zh': 'zh',
+          'fr': 'fr',
+          'de': 'de',
+          'es': 'es',
+          'ru': 'ru',
+          'ja': 'ja',
+          'ko': 'ko',
+          'auto': 'en' // 默认为英语
+        };
+        
+        const targetLangCode = langCodeMap[targetLanguage] || 'zh';
+        const result = await this.inference.request({
+          model: modelId,
+          inputs: text,
+          parameters: {
+            forced_bos_token_id: targetLangCode
+          }
+        });
+        
+        // 处理返回结果
+        if (typeof result === 'string') {
+          return { translation_text: result };
+        } else if (Array.isArray(result) && result.length > 0) {
+          if (typeof result[0] === 'string') {
+            return { translation_text: result[0] };
+          } else if (result[0] && typeof (result[0] as any).generated_text === 'string') {
+            return { translation_text: (result[0] as any).generated_text };
+          }
+        }
+        
+        // 如果无法解析结果，使用JSON字符串作为回退
+        console.warn('无法解析M2M100翻译结果:', result);
+        return { translation_text: JSON.stringify(result) };
+      }
+      
+      // 对于Helsinki模型，直接使用标准调用
+      console.log(`使用模型: ${modelId} 进行翻译`);
+      const result = await this.inference.request({
+        model: modelId,
+        inputs: text,
+        task: "translation"
       });
+      
+      // 处理返回结果
+      if (typeof result === 'string') {
+        return { translation_text: result };
+      } else if (Array.isArray(result) && result.length > 0) {
+        if (typeof result[0] === 'string') {
+          return { translation_text: result[0] };
+        } else if (result[0] && typeof (result[0] as any).translation_text === 'string') {
+          return result[0] as {translation_text: string};
+        }
+      } else if (result && typeof (result as any).translation_text === 'string') {
+        return result as {translation_text: string};
+      }
+      
+      // 如果无法解析结果，尝试解析generated_text
+      if (result && Array.isArray(result) && result.length > 0 && typeof (result[0] as any).generated_text === 'string') {
+        return { translation_text: (result[0] as any).generated_text };
+      }
+      
+      // 最后的回退选项
+      console.warn('无法解析翻译结果，使用原始返回:', result);
+      return { translation_text: typeof result === 'string' ? result : JSON.stringify(result) };
+      
     } catch (error: any) {
       console.error('翻译错误，尝试备用模型:', error);
       
-      // 如果失败，尝试使用更可靠的通用模型
+      // 如果失败，回退到最可靠的Helsinki模型
       try {
         console.log('使用备用翻译模型: Helsinki-NLP/opus-mt-en-zh');
-        // 对于英译中，使用这个特定模型
-        if (targetLanguage === 'zh') {
-          return this.inference.translation({
-            model: 'Helsinki-NLP/opus-mt-en-zh',
-            inputs: text
-          });
-        } 
-        // 对于中译英，使用这个特定模型
-        else if (targetLanguage === 'en') {
-          return this.inference.translation({
-            model: 'Helsinki-NLP/opus-mt-zh-en',
-            inputs: text
-          });
+        const backupResult = await this.inference.request({
+          model: 'Helsinki-NLP/opus-mt-en-zh',
+          inputs: text,
+          task: "translation"
+        });
+        
+        // 处理返回结果
+        if (typeof backupResult === 'string') {
+          return { translation_text: backupResult };
+        } else if (Array.isArray(backupResult) && backupResult.length > 0) {
+          if (typeof backupResult[0] === 'string') {
+            return { translation_text: backupResult[0] };
+          } else if (backupResult[0] && typeof (backupResult[0] as any).translation_text === 'string') {
+            return backupResult[0] as {translation_text: string};
+          }
+        } else if (backupResult && typeof (backupResult as any).translation_text === 'string') {
+          return backupResult as {translation_text: string};
         }
-        // 其他语言组合使用多语言模型
-        else {
-          return this.inference.translation({
-            model: 'facebook/m2m100_418M',
-            inputs: text
-          });
-        }
+        
+        // 备用方案：如果无法解析，返回原始结果
+        return { translation_text: typeof backupResult === 'string' ? backupResult : JSON.stringify(backupResult) };
+        
       } catch (backupError) {
         console.error('备用翻译也失败:', backupError);
         throw new Error(`翻译失败: ${error.message}`);

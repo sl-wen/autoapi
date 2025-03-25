@@ -79,6 +79,14 @@
         </p>
     </div>
     
+    <div style="background-color: #e6f7ff; padding: 10px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #1890ff;">
+        <p style="margin: 0;"><strong>Vercel部署说明：</strong>
+            <br>• 本应用已适配Vercel部署，可直接通过GitHub仓库一键部署
+            <br>• 部署后请在Vercel项目设置中添加必要的环境变量：HUGGINGFACE_API_KEY和OPENAI_API_KEY
+            <br>• 您当前使用的是<span id="deploymentStatus">本地版本</span>
+        </p>
+    </div>
+    
     <div class="container">
         <!-- 文章摘要 -->
         <div class="card">
@@ -137,6 +145,16 @@
                     <option value="ko">韩文</option>
                 </select>
             </div>
+            <div style="color: #666; font-size: 0.9em; margin-bottom: 10px;">
+                注意：目前中文和英文之间的翻译效果最佳，其他语言组合会自动切换到多语言模型。
+            </div>
+            <div style="background-color: #f0f8ff; padding: 10px; border-radius: 5px; margin-bottom: 10px; border-left: 4px solid #4682b4;">
+                <p style="margin: 0;"><strong>关于翻译模型：</strong>
+                    <br>• 中英互译使用专用的翻译模型，效果最佳
+                    <br>• 其他语言使用M2M100多语言模型，支持100多种语言之间的互译
+                    <br>• 复杂文档翻译可能需要分段处理以获得更好效果
+                </p>
+            </div>
             <button onclick="translateText()">翻译文本</button>
             <h3>结果:</h3>
             <div id="translateResult" class="result"></div>
@@ -169,6 +187,15 @@
     </div>
 
     <script>
+        // 设置API基础URL
+        const API_BASE_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3000/api' 
+            : '/api';
+            
+        // 显示部署状态
+        document.getElementById('deploymentStatus').textContent = 
+            window.location.hostname === 'localhost' ? '本地开发版本' : 'Vercel在线版本';
+            
         async function summarizeArticle() {
             const text = document.getElementById('summarizeText').value;
             const model = document.getElementById('summaryModel').value;
@@ -184,7 +211,7 @@
             document.getElementById('originalSummary').style.display = 'none';
 
             try {
-                const response = await fetch('/api/summarize', {
+                const response = await fetch(`${API_BASE_URL}/summarize`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -231,7 +258,7 @@
             document.getElementById('translateResult').textContent = '处理中...';
 
             try {
-                const response = await fetch('/api/translate', {
+                const response = await fetch(`${API_BASE_URL}/translate`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -273,7 +300,7 @@
             document.getElementById('batchResult').textContent = '处理中...';
 
             try {
-                const response = await fetch('/api/batch-process', {
+                const response = await fetch(`${API_BASE_URL}/batch-process`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
