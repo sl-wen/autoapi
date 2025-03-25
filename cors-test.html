@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+            min-height: 100px;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI服务API测试</h1>
+    
+    <div>
+        <h2>文本输入</h2>
+        <textarea id="inputText" placeholder="请输入要处理的文本...">人工智能（Artificial Intelligence，缩写为AI）是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器。人工智能是一门极富挑战性的科学，从事这项工作的人必须懂得计算机知识，心理学和哲学。人工智能是包括十分广泛的科学，它由不同的领域组成，如机器学习，计算机视觉等等，总的说来，人工智能研究的一个主要目标是使机器能够胜任一些通常需要人类智能才能完成的复杂任务。</textarea>
+    </div>
+    
+    <div>
+        <h2>API选择</h2>
+        <div>
+            <input type="radio" id="summarize" name="apiType" value="summarize" checked>
+            <label for="summarize">摘要生成</label>
+            
+            <input type="radio" id="translate" name="apiType" value="translate">
+            <label for="translate">文本翻译</label>
+        </div>
+    </div>
+    
+    <div>
+        <h2>API地址</h2>
+        <input type="text" id="apiUrl" value="http://localhost:3002/api/" style="width: 100%;">
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <button onclick="callApi()">发送请求</button>
+    </div>
+    
+    <div id="resultContainer">
+        <h2>结果</h2>
+        <pre id="result">结果将显示在这里...</pre>
+    </div>
+    
+    <script>
+        async function callApi() {
+            const inputText = document.getElementById('inputText').value;
+            if (!inputText) {
+                alert('请输入文本');
+                return;
+            }
+            
+            const apiType = document.querySelector('input[name="apiType"]:checked').value;
+            const baseUrl = document.getElementById('apiUrl').value;
+            const apiUrl = `${baseUrl}${apiType}`;
+            
+            const resultElement = document.getElementById('result');
+            resultElement.innerHTML = '请求中...';
+            resultElement.className = '';
+            
+            try {
+                let requestBody = {};
+                
+                if (apiType === 'summarize') {
+                    requestBody = {
+                        text: inputText,
+                        maxLength: 150,
+                        language: 'zh',
+                        model: 'huggingface:mt5'
+                    };
+                } else if (apiType === 'translate') {
+                    requestBody = {
+                        text: inputText,
+                        sourceLanguage: 'auto',
+                        targetLanguage: 'en',
+                        model: 'huggingface'
+                    };
+                }
+                
+                console.log('发送请求到:', apiUrl);
+                console.log('请求数据:', JSON.stringify(requestBody, null, 2));
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    console.log('成功响应:', data);
+                    resultElement.innerHTML = JSON.stringify(data, null, 2);
+                } else {
+                    console.error('错误响应:', data);
+                    resultElement.innerHTML = JSON.stringify(data, null, 2);
+                    resultElement.className = 'error';
+                }
+            } catch (error) {
+                console.error('请求错误:', error);
+                resultElement.innerHTML = `请求出错: ${error.message}`;
+                resultElement.className = 'error';
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -69,7 +69,7 @@ const FALLBACK_MODELS = {
  */
 function parseApiError(error: unknown): Error {
   if (error instanceof Error) {
-    let errorMessage = error.message;
+    const errorMessage = error.message;
     
     try {
       // 尝试解析错误文本
