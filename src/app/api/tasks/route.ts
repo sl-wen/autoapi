@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 
+// 定义任务类型
+interface Task {
+  id: string;
+  type: 'summarize' | 'generate' | 'analyze';
+  data: TaskData;
+  schedule?: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  result: string | null;
+  createdAt: string;
+}
+
+// 定义任务数据类型
+interface TaskData {
+  text?: string;
+  prompt?: string;
+}
+
 // 初始化OpenAI客户端
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -8,7 +25,7 @@ const openai = new OpenAI({
 
 // 简单的内存存储，用于演示目的
 // 实际应用中应使用数据库
-const tasks: Record<string, any>[] = [];
+const tasks: Task[] = [];
 
 export async function GET() {
   return NextResponse.json({ tasks });
@@ -26,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建任务
-    const task = {
+    const task: Task = {
       id: Date.now().toString(),
       type,
       data,
@@ -87,7 +104,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 // 处理任务的函数
-async function processTask(task: Record<string, any>) {
+async function processTask(task: Task) {
   try {
     task.status = 'processing';
 
@@ -116,9 +133,15 @@ async function processTask(task: Record<string, any>) {
 }
 
 // 处理摘要任务
-async function processSummarizeTask(task: Record<string, any>) {
+async function processSummarizeTask(task: Task) {
   const { text } = task.data;
   
+  if (!text) {
+    task.status = 'failed';
+    task.result = '缺少文本内容';
+    return;
+  }
+
   const response = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
     messages: [
@@ -139,9 +162,15 @@ async function processSummarizeTask(task: Record<string, any>) {
 }
 
 // 处理文本生成任务
-async function processGenerateTask(task: Record<string, any>) {
+async function processGenerateTask(task: Task) {
   const { prompt } = task.data;
   
+  if (!prompt) {
+    task.status = 'failed';
+    task.result = '缺少提示词';
+    return;
+  }
+
   const response = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
     messages: [
@@ -158,9 +187,15 @@ async function processGenerateTask(task: Record<string, any>) {
 }
 
 // 处理文本分析任务
-async function processAnalyzeTask(task: Record<string, any>) {
+async function processAnalyzeTask(task: Task) {
   const { text } = task.data;
   
+  if (!text) {
+    task.status = 'failed';
+    task.result = '缺少文本内容';
+    return;
+  }
+
   const response = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
     messages: [

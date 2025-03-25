@@ -14,6 +14,16 @@ interface ModelConfig {
   description?: string;
 }
 
+// 翻译结果类型
+interface TranslationResponse {
+  translation_text: string;
+}
+
+// 摘要结果类型
+interface SummaryResult {
+  summary_text: string;
+}
+
 // 模型映射配置
 const MODELS: Record<ModelTask, Record<string, ModelConfig>> = {
   'summarization': {
@@ -155,7 +165,7 @@ export class HuggingFaceService {
    * @param minLength 最小长度
    * @returns 摘要结果
    */
-  public async summarize(text: string, modelName: string = 'bart-large-cnn', maxLength: number = 150, minLength: number = 30) {
+  public async summarize(text: string, modelName: string = 'bart-large-cnn', maxLength: number = 150, minLength: number = 30): Promise<SummaryResult> {
     const modelConfig = this.getSummarizationModel(modelName);
     
     try {
@@ -176,12 +186,11 @@ export class HuggingFaceService {
                          text.includes('开发');
         
         // 为技术文档和普通文档选择不同的模型
-        // 使用确认可用的模型
         const chineseModelId = isTechDoc 
-          ? MODELS.summarization['chinese-t5'].id  // 对技术文档使用T5模型
-          : MODELS.summarization['mt5'].id;  // 默认使用多语言模型，确保可用
+          ? MODELS.summarization['chinese-t5'].id
+          : MODELS.summarization['mt5'].id;
         
-        return this.inference.summarization({
+        const result = await this.inference.summarization({
           model: chineseModelId,
           inputs: text,
           parameters: {
@@ -189,35 +198,25 @@ export class HuggingFaceService {
             min_length: minLength
           }
         });
+        return { summary_text: result.summary_text };
       }
       
-      // 处理特殊情况 - 如果用户选择了可能不存在的模型，使用可靠的备选
-      if (modelName === 'uer-pegasus') {
+      // 处理特殊情况
+      if (modelName === 'uer-pegasus' || modelName === 'bert-chinese') {
         console.log('使用替代中文摘要模型');
-        return this.inference.summarization({
-          model: MODELS.summarization['mt5'].id, // 使用可靠的多语言模型
+        const result = await this.inference.summarization({
+          model: MODELS.summarization['mt5'].id,
           inputs: text,
           parameters: {
             max_length: maxLength,
             min_length: minLength
           }
         });
+        return { summary_text: result.summary_text };
       }
       
-      if (modelName === 'bert-chinese') {
-        console.log('使用替代中文BERT模型');
-        return this.inference.summarization({
-          model: MODELS.summarization['chinese-t5'].id, // 使用替代中文模型
-          inputs: text,
-          parameters: {
-            max_length: maxLength,
-            min_length: minLength
-          }
-        });
-      }
-      
-      // 如果明确指定了特定模型，则使用指定的模型
-      return this.inference.summarization({
+      // 使用指定的模型
+      const result = await this.inference.summarization({
         model: modelConfig.id,
         inputs: text,
         parameters: {
@@ -225,11 +224,12 @@ export class HuggingFaceService {
           min_length: minLength
         }
       });
+      return { summary_text: result.summary_text };
     } catch (error) {
       console.error('摘要生成错误:', error);
-      // 尝试使用备用模型 - 优先使用mt5，因为它已被证明可用
+      // 尝试使用备用模型
       console.log('尝试使用备用多语言模型mt5');
-      return this.inference.summarization({
+      const result = await this.inference.summarization({
         model: MODELS.summarization['mt5'].id,
         inputs: text,
         parameters: {
@@ -237,6 +237,7 @@ export class HuggingFaceService {
           min_length: minLength
         }
       });
+      return { summary_text: result.summary_text };
     }
   }
 
@@ -247,144 +248,74 @@ export class HuggingFaceService {
    * @param targetLanguage 目标语言
    * @returns 翻译结果
    */
-  public async translate(text: string, sourceLanguage: Language = 'auto', targetLanguage: Language = 'zh'): Promise<{translation_text: string}> {
-    // 选择最适合的翻译模型
-    let modelId = '';
-    
-    // 对于中文和英文之间的翻译，我们使用特定的双语模型
-    if ((sourceLanguage === 'en' || HuggingFaceService.isChineseText(text)) && targetLanguage === 'zh') {
-      modelId = 'Helsinki-NLP/opus-mt-en-zh';
-      console.log('使用英译中模型:', modelId);
-    } else if ((sourceLanguage === 'zh' || HuggingFaceService.isChineseText(text)) && targetLanguage === 'en') {
-      modelId = 'Helsinki-NLP/opus-mt-zh-en';
-      console.log('使用中译英模型:', modelId);
-    } else {
-      // 对于其他语言组合，使用多语言模型
-      modelId = 'facebook/m2m100_418M';
-      console.log('使用多语言模型:', modelId);
-    }
-    
+  public async translate(text: string, sourceLanguage: Language = 'auto', targetLanguage: Language = 'zh'): Promise<TranslationResponse> {
+    const modelConfig = this.getTranslationModel(sourceLanguage, targetLanguage);
+
     try {
-      // 为Facebook多语言模型准备特殊处理
-      if (modelId === 'facebook/m2m100_418M') {
-        // 为m2m100模型，使用原始请求并明确指定目标语言
-        console.log(`使用M2M100多语言模型，目标语言: ${targetLanguage}`);
-        
-        // 需要将语言代码转换为M2M100期望的格式
-        const langCodeMap: Record<string, string> = {
-          'en': 'en',
-          'zh': 'zh',
-          'fr': 'fr',
-          'de': 'de',
-          'es': 'es',
-          'ru': 'ru',
-          'ja': 'ja',
-          'ko': 'ko',
-          'auto': 'en' // 默认为英语
-        };
-        
-        const targetLangCode = langCodeMap[targetLanguage] || 'zh';
-        const result = await this.inference.request({
-          model: modelId,
-          inputs: text,
-          parameters: {
-            forced_bos_token_id: targetLangCode
-          }
-        });
-        
-        // 处理返回结果
-        if (typeof result === 'string') {
-          return { translation_text: result };
-        } else if (Array.isArray(result) && result.length > 0) {
-          if (typeof result[0] === 'string') {
-            return { translation_text: result[0] };
-          } else if (result[0] && typeof (result[0] as any).generated_text === 'string') {
-            return { translation_text: (result[0] as any).generated_text };
-          }
+      // 如果源语言是auto，尝试检测是否是中文
+      if (sourceLanguage === 'auto') {
+        const isChinese = HuggingFaceService.isChineseText(text);
+        if (isChinese && targetLanguage === 'en') {
+          // 如果是中文到英文，使用专门的中英翻译模型
+          const result = await this.inference.translation({
+            model: MODELS.translation['zh-to-en'].id,
+            inputs: text
+          });
+          return { translation_text: result.translation_text };
+        } else if (!isChinese && targetLanguage === 'zh') {
+          // 如果是英文到中文，使用专门的英中翻译模型
+          const result = await this.inference.translation({
+            model: MODELS.translation['en-to-zh'].id,
+            inputs: text
+          });
+          return { translation_text: result.translation_text };
         }
-        
-        // 如果无法解析结果，使用JSON字符串作为回退
-        console.warn('无法解析M2M100翻译结果:', result);
-        return { translation_text: JSON.stringify(result) };
       }
-      
-      // 对于Helsinki模型，直接使用标准调用
-      console.log(`使用模型: ${modelId} 进行翻译`);
-      const result = await this.inference.request({
-        model: modelId,
+
+      // 使用多语言模型进行翻译
+      const response = await this.inference.translation({
+        model: modelConfig.id,
         inputs: text,
-        task: "translation"
+        parameters: {
+          src_lang: sourceLanguage === 'auto' ? 'en' : sourceLanguage.toUpperCase(),
+          tgt_lang: targetLanguage.toUpperCase()
+        }
       });
+
+      return { translation_text: response.translation_text };
+    } catch (error) {
+      console.error('翻译错误:', error);
       
-      // 处理返回结果
-      if (typeof result === 'string') {
-        return { translation_text: result };
-      } else if (Array.isArray(result) && result.length > 0) {
-        if (typeof result[0] === 'string') {
-          return { translation_text: result[0] };
-        } else if (result[0] && typeof (result[0] as any).translation_text === 'string') {
-          return result[0] as {translation_text: string};
-        }
-      } else if (result && typeof (result as any).translation_text === 'string') {
-        return result as {translation_text: string};
-      }
+      // 尝试使用备用翻译模型
+      console.log('尝试使用备用翻译模型');
       
-      // 如果无法解析结果，尝试解析generated_text
-      if (result && Array.isArray(result) && result.length > 0 && typeof (result[0] as any).generated_text === 'string') {
-        return { translation_text: (result[0] as any).generated_text };
-      }
+      // 根据目标语言选择合适的备用模型
+      const fallbackModelId = targetLanguage === 'zh' 
+        ? MODELS.translation['en-to-zh'].id
+        : targetLanguage === 'en'
+          ? MODELS.translation['zh-to-en'].id
+          : MODELS.translation['multilingual'].id;
       
-      // 最后的回退选项
-      console.warn('无法解析翻译结果，使用原始返回:', result);
-      return { translation_text: typeof result === 'string' ? result : JSON.stringify(result) };
-      
-    } catch (error: any) {
-      console.error('翻译错误，尝试备用模型:', error);
-      
-      // 如果失败，回退到最可靠的Helsinki模型
-      try {
-        console.log('使用备用翻译模型: Helsinki-NLP/opus-mt-en-zh');
-        const backupResult = await this.inference.request({
-          model: 'Helsinki-NLP/opus-mt-en-zh',
-          inputs: text,
-          task: "translation"
-        });
-        
-        // 处理返回结果
-        if (typeof backupResult === 'string') {
-          return { translation_text: backupResult };
-        } else if (Array.isArray(backupResult) && backupResult.length > 0) {
-          if (typeof backupResult[0] === 'string') {
-            return { translation_text: backupResult[0] };
-          } else if (backupResult[0] && typeof (backupResult[0] as any).translation_text === 'string') {
-            return backupResult[0] as {translation_text: string};
-          }
-        } else if (backupResult && typeof (backupResult as any).translation_text === 'string') {
-          return backupResult as {translation_text: string};
-        }
-        
-        // 备用方案：如果无法解析，返回原始结果
-        return { translation_text: typeof backupResult === 'string' ? backupResult : JSON.stringify(backupResult) };
-        
-      } catch (backupError) {
-        console.error('备用翻译也失败:', backupError);
-        throw new Error(`翻译失败: ${error.message}`);
-      }
+      const result = await this.inference.translation({
+        model: fallbackModelId,
+        inputs: text
+      });
+      return { translation_text: result.translation_text };
     }
   }
 
   /**
-   * 检测语言是否为中文
-   * @param text 文本
-   * @returns 是否为中文
+   * 检查文本是否包含中文字符
+   * @param text 要检查的文本
+   * @returns 是否包含中文字符
    */
   public static isChineseText(text: string): boolean {
     return /[\u4e00-\u9fa5]/.test(text);
   }
 
   /**
-   * 获取Hugging Face客户端实例
-   * @returns HfInference实例
+   * 获取HuggingFace客户端实例
+   * @returns HuggingFace客户端实例
    */
   public getClient(): HfInference {
     return this.inference;

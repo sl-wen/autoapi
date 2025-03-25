@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { HuggingFaceService, Language } from '@/lib/huggingface';
 
+// 定义错误类型接口
+interface TranslationError extends Error {
+  message: string;
+  code?: string;
+  status?: number;
+}
+
+// 定义翻译结果接口
+interface TranslationResult {
+  translation_text: string;
+  [key: string]: unknown;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { text, sourceLanguage = 'auto', targetLanguage = 'zh', model = 'huggingface' } = await request.json();
@@ -43,7 +56,8 @@ export async function POST(request: NextRequest) {
         sourceLanguage: validSourceLang,
         targetLanguage: validTargetLang
       });
-    } catch (translationError: any) {
+    } catch (error) {
+      const translationError = error as TranslationError;
       console.error('翻译错误详情:', translationError);
       
       // 尝试使用备用翻译模型
@@ -70,10 +84,10 @@ export async function POST(request: NextRequest) {
         } else if (Array.isArray(fallbackResult) && fallbackResult.length > 0) {
           if (typeof fallbackResult[0] === 'string') {
             translatedText = fallbackResult[0];
-          } else if (fallbackResult[0] && (fallbackResult[0] as any).translation_text) {
-            translatedText = (fallbackResult[0] as any).translation_text;
-          } else if (fallbackResult[0] && (fallbackResult[0] as any).generated_text) {
-            translatedText = (fallbackResult[0] as any).generated_text;
+          } else if (fallbackResult[0] && (fallbackResult[0] as TranslationResult).translation_text) {
+            translatedText = (fallbackResult[0] as TranslationResult).translation_text;
+          } else if (fallbackResult[0] && (fallbackResult[0] as {generated_text?: string}).generated_text) {
+            translatedText = (fallbackResult[0] as {generated_text: string}).generated_text;
           } else {
             translatedText = JSON.stringify(fallbackResult[0]);
           }
@@ -87,14 +101,16 @@ export async function POST(request: NextRequest) {
           targetLanguage: validTargetLang,
           note: '使用了备用翻译模型'
         });
-      } catch (fallbackError: any) {
-        throw new Error(`翻译失败: ${translationError.message}. 备用模型也失败: ${fallbackError.message}`);
+      } catch (error) {
+        const fallbackErr = error as TranslationError;
+        throw new Error(`翻译失败: ${translationError.message}. 备用模型也失败: ${fallbackErr.message}`);
       }
     }
-  } catch (error: any) {
-    console.error('翻译错误:', error);
+  } catch (error) {
+    const apiError = error as TranslationError;
+    console.error('翻译错误:', apiError);
     return NextResponse.json(
-      { error: `翻译时发生错误: ${error.message}` },
+      { error: `翻译时发生错误: ${apiError.message}` },
       { status: 500 }
     );
   }

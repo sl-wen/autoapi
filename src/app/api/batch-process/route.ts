@@ -1,29 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { HuggingFaceService, Language } from '@/lib/huggingface';
 
+// 定义错误类型接口
+interface ApiError extends Error {
+  message: string;
+  code?: string;
+  status?: number;
+}
+
+// 定义处理结果类型
+interface ProcessResult {
+  originalText: string;
+  summary?: string;
+  translatedText?: string;
+  translatedSummary?: string;
+  error?: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { 
       articles, 
-      task = 'summarize', // 'summarize', 'translate', 'both'
-      maxLength = 150, 
-      sourceLanguage = 'auto',
+      task = 'summarize', 
+      sourceLanguage = 'auto', 
       targetLanguage = 'zh',
-      model = 'huggingface',
-      summaryModel = 'bart-large-cnn'
+      summaryModel = 'mt5',
+      maxLength = 150 
     } = await request.json();
 
     if (!articles || !Array.isArray(articles) || articles.length === 0) {
       return NextResponse.json(
-        { error: '缺少文章内容或格式不正确' },
+        { error: '缺少有效的文章内容' },
         { status: 400 }
       );
     }
 
-    // 仅支持HuggingFace模型
-    if (model !== 'huggingface') {
+    // 验证任务类型
+    const validTasks = ['summarize', 'translate', 'both'];
+    if (!validTasks.includes(task)) {
       return NextResponse.json(
-        { error: '批量处理仅支持HuggingFace模型' },
+        { error: '无效的任务类型' },
         { status: 400 }
       );
     }
@@ -32,20 +48,13 @@ export async function POST(request: NextRequest) {
     const hfService = HuggingFaceService.getInstance();
     const hfClient = hfService.getClient();
 
-    // 批量处理结果数组
-    const results = [];
-    const errors = [];
+    const results: ProcessResult[] = [];
+    const errors: string[] = [];
 
     // 逐个处理文章
     for (const [index, article] of articles.entries()) {
       try {
-        const result: {
-          originalText: string;
-          summary?: string;
-          translatedText?: string;
-          translatedSummary?: string;
-          error?: string;
-        } = {
+        const result: ProcessResult = {
           originalText: article
         };
 
@@ -60,7 +69,8 @@ export async function POST(request: NextRequest) {
               Math.min(30, maxLength / 3)
             );
             result.summary = summaryResult.summary_text;
-          } catch (summaryError: any) {
+          } catch (error) {
+            const summaryError = error as ApiError;
             console.error(`文章 ${index + 1} 摘要错误:`, summaryError);
             result.error = `摘要生成失败: ${summaryError.message}`;
             // 继续执行其他任务，不中断
@@ -76,7 +86,8 @@ export async function POST(request: NextRequest) {
               targetLanguage as Language
             );
             result.translatedText = translationResult.translation_text;
-          } catch (translationError: any) {
+          } catch (error) {
+            const translationError = error as ApiError;
             console.error(`文章 ${index + 1} 翻译错误:`, translationError);
             
             // 尝试使用备用翻译方法
@@ -87,7 +98,9 @@ export async function POST(request: NextRequest) {
               });
               result.translatedText = fallbackResult.translation_text;
               if (!result.error) result.error = '使用了备用翻译模型';
-            } catch (fallbackError: any) {
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            } catch (_) {
+              // 忽略备用错误，只使用主要错误信息
               if (result.error) {
                 result.error += `. 翻译失败: ${translationError.message}`;
               } else {
@@ -105,8 +118,9 @@ export async function POST(request: NextRequest) {
                 targetLanguage as Language
               );
               result.translatedSummary = summaryTranslationResult.translation_text;
-            } catch (summaryTranslationError: any) {
-              console.error(`文章 ${index + 1} 摘要翻译错误:`, summaryTranslationError);
+            } catch (error) {
+              const summaryTransError = error as ApiError;
+              console.error(`文章 ${index + 1} 摘要翻译错误:`, summaryTransError);
               // 尝试使用备用翻译方法
               try {
                 const fallbackResult = await hfClient.translation({
@@ -114,7 +128,8 @@ export async function POST(request: NextRequest) {
                   inputs: result.summary
                 });
                 result.translatedSummary = fallbackResult.translation_text;
-              } catch (fallbackError: any) {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              } catch (_) {
                 // 摘要翻译失败不影响整体结果
                 if (result.error) {
                   result.error += `. 摘要翻译失败`;
@@ -127,7 +142,8 @@ export async function POST(request: NextRequest) {
         }
 
         results.push(result);
-      } catch (articleError: any) {
+      } catch (error) {
+        const articleError = error as ApiError;
         console.error(`处理文章 ${index + 1} 时出错:`, articleError);
         errors.push(`文章 ${index + 1} 处理失败: ${articleError.message}`);
         results.push({
@@ -144,10 +160,11 @@ export async function POST(request: NextRequest) {
       sourceLanguage,
       targetLanguage
     });
-  } catch (error: any) {
-    console.error('批量处理错误:', error);
+  } catch (error) {
+    const apiError = error as ApiError;
+    console.error('批量处理错误:', apiError);
     return NextResponse.json(
-      { error: `批量处理文章时发生错误: ${error.message}` },
+      { error: `批量处理文章时发生错误: ${apiError.message}` },
       { status: 500 }
     );
   }

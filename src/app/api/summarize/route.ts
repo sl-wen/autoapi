@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 import { HuggingFaceService, Language } from '@/lib/huggingface';
 
+// 定义错误类型接口
+interface ApiError extends Error {
+  message: string;
+  code?: string;
+  status?: number;
+}
+
+// 定义摘要结果接口
+interface SummaryResult {
+  summary_text: string;
+  [key: string]: unknown;
+}
+
 // 初始化OpenAI客户端
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -45,7 +58,8 @@ export async function POST(request: NextRequest) {
         });
 
         summary = response.choices[0]?.message.content || '无法生成摘要';
-      } catch (openaiError: any) {
+      } catch (error) {
+        const openaiError = error as ApiError;
         console.error('OpenAI摘要错误:', openaiError);
         // 如果OpenAI错误，尝试使用HuggingFace备用
         if (openaiError.message.includes('API key')) {
@@ -80,7 +94,7 @@ export async function POST(request: NextRequest) {
         }
         
         // 调用摘要服务
-        let summaryResult;
+        let summaryResult: SummaryResult;
         try {
           summaryResult = await hfService.summarize(
             text, 
@@ -88,7 +102,8 @@ export async function POST(request: NextRequest) {
             maxLength, 
             Math.min(30, maxLength / 3)
           );
-        } catch (initialError: any) {
+        } catch (error) {
+          const initialError = error as ApiError;
           console.error('初始摘要模型失败，尝试备用模型:', initialError);
           // 如果初始模型失败，尝试使用更通用的模型
           if (modelName !== 'mt5') {
@@ -244,7 +259,8 @@ export async function POST(request: NextRequest) {
               );
               summary = translationResult.translation_text;
             }
-          } catch (translationError: any) {
+          } catch (error) {
+            const translationError = error as ApiError;
             console.error('摘要翻译错误:', translationError);
             // 尝试直接使用翻译模型
             try {
@@ -253,14 +269,16 @@ export async function POST(request: NextRequest) {
                 inputs: summary
               });
               summary = fallbackResult.translation_text;
-            } catch (fallbackError: any) {
-              console.error('备用翻译也失败:', fallbackError);
+            } catch (error) {
+              const backupError = error as ApiError;
+              console.error('备用翻译也失败:', backupError);
               // 保留原摘要，添加注意事项
               summary = `[注意：翻译失败] ${summary}`;
             }
           }
         }
-      } catch (hfError: any) {
+      } catch (error) {
+        const hfError = error as ApiError;
         console.error('HuggingFace摘要错误:', hfError);
         
         // 如果HuggingFace彻底失败，尝试使用OpenAI
@@ -306,11 +324,12 @@ export async function POST(request: NextRequest) {
       language,
       originalSummary: language === 'zh' && !HuggingFaceService.isChineseText(originalSummary) ? originalSummary : undefined
     });
-  } catch (error: any) {
-    console.error('摘要生成错误:', error);
+  } catch (error) {
+    const apiError = error as ApiError;
+    console.error('摘要生成错误:', apiError);
     return NextResponse.json(
-      { error: `生成摘要时发生错误: ${error.message}` },
+      { error: `生成摘要时发生错误: ${apiError.message}` },
       { status: 500 }
     );
   }
-} 
+}
