@@ -17,6 +17,21 @@ interface ProcessResult {
   error?: string;
 }
 
+// 定义翻译结果类型
+interface TranslationResult {
+  translation_text: string;
+}
+
+// 定义请求参数类型
+interface BatchProcessRequest {
+  articles: string[];
+  task?: 'summarize' | 'translate' | 'both';
+  sourceLanguage?: Language;
+  targetLanguage?: Language;
+  summaryModel?: string;
+  maxLength?: number;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { 
@@ -26,7 +41,7 @@ export async function POST(request: NextRequest) {
       targetLanguage = 'zh',
       summaryModel = 'mt5',
       maxLength = 150 
-    } = await request.json();
+    }: BatchProcessRequest = await request.json();
 
     if (!articles || !Array.isArray(articles) || articles.length === 0) {
       return NextResponse.json(
@@ -69,7 +84,7 @@ export async function POST(request: NextRequest) {
               Math.min(30, maxLength / 3)
             );
             result.summary = summaryResult.summary_text;
-          } catch (error) {
+          } catch (error: unknown) {
             const summaryError = error as ApiError;
             console.error(`文章 ${index + 1} 摘要错误:`, summaryError);
             result.error = `摘要生成失败: ${summaryError.message}`;
@@ -86,7 +101,7 @@ export async function POST(request: NextRequest) {
               targetLanguage as Language
             );
             result.translatedText = translationResult.translation_text;
-          } catch (error) {
+          } catch (error: unknown) {
             const translationError = error as ApiError;
             console.error(`文章 ${index + 1} 翻译错误:`, translationError);
             
@@ -95,11 +110,10 @@ export async function POST(request: NextRequest) {
               const fallbackResult = await hfClient.translation({
                 model: 'Helsinki-NLP/opus-mt-en-zh', // 使用可靠的基础模型
                 inputs: article
-              });
+              }) as TranslationResult;
               result.translatedText = fallbackResult.translation_text;
               if (!result.error) result.error = '使用了备用翻译模型';
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            } catch (_) {
+            } catch {
               // 忽略备用错误，只使用主要错误信息
               if (result.error) {
                 result.error += `. 翻译失败: ${translationError.message}`;
@@ -118,7 +132,7 @@ export async function POST(request: NextRequest) {
                 targetLanguage as Language
               );
               result.translatedSummary = summaryTranslationResult.translation_text;
-            } catch (error) {
+            } catch (error: unknown) {
               const summaryTransError = error as ApiError;
               console.error(`文章 ${index + 1} 摘要翻译错误:`, summaryTransError);
               // 尝试使用备用翻译方法
@@ -126,10 +140,9 @@ export async function POST(request: NextRequest) {
                 const fallbackResult = await hfClient.translation({
                   model: 'Helsinki-NLP/opus-mt-en-zh',
                   inputs: result.summary
-                });
+                }) as TranslationResult;
                 result.translatedSummary = fallbackResult.translation_text;
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              } catch (_) {
+              } catch {
                 // 摘要翻译失败不影响整体结果
                 if (result.error) {
                   result.error += `. 摘要翻译失败`;
@@ -142,7 +155,7 @@ export async function POST(request: NextRequest) {
         }
 
         results.push(result);
-      } catch (error) {
+      } catch (error: unknown) {
         const articleError = error as ApiError;
         console.error(`处理文章 ${index + 1} 时出错:`, articleError);
         errors.push(`文章 ${index + 1} 处理失败: ${articleError.message}`);
@@ -160,7 +173,7 @@ export async function POST(request: NextRequest) {
       sourceLanguage,
       targetLanguage
     });
-  } catch (error) {
+  } catch (error: unknown) {
     const apiError = error as ApiError;
     console.error('批量处理错误:', apiError);
     return NextResponse.json(
