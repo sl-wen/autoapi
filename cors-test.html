@@ -22,6 +22,7 @@
             color: white;
             border: none;
             cursor: pointer;
+            margin-right: 10px;
         }
         button:hover {
             background-color: #45a049;
@@ -36,6 +37,8 @@
             border: 1px solid #ddd;
             background-color: #f9f9f9;
             min-height: 100px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
         .error {
             color: red;
@@ -47,34 +50,83 @@
             margin-top: 10px;
             font-style: italic;
         }
+        .api-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .download-link {
+            color: #4CAF50;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .download-link:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
     <h1>AI服务API测试</h1>
     
-    <div>
-        <h2>文本输入</h2>
-        <textarea id="inputText" placeholder="请输入要处理的文本...">人工智能（Artificial Intelligence，缩写为AI）是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器。人工智能是一门极富挑战性的科学，从事这项工作的人必须懂得计算机知识，心理学和哲学。人工智能是包括十分广泛的科学，它由不同的领域组成，如机器学习，计算机视觉等等，总的说来，人工智能研究的一个主要目标是使机器能够胜任一些通常需要人类智能才能完成的复杂任务。</textarea>
-    </div>
-    
-    <div>
-        <h2>API选择</h2>
-        <div>
-            <input type="radio" id="summarize" name="apiType" value="summarize" checked>
-            <label for="summarize">摘要生成</label>
-            
-            <input type="radio" id="translate" name="apiType" value="translate">
-            <label for="translate">文本翻译</label>
+    <!-- 文本处理部分 -->
+    <div class="api-section">
+        <h2>文本处理</h2>
+        <div class="form-group">
+            <label>文本输入</label>
+            <textarea id="inputText" placeholder="请输入要处理的文本...">人工智能（Artificial Intelligence，缩写为AI）是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器。人工智能是一门极富挑战性的科学，从事这项工作的人必须懂得计算机知识，心理学和哲学。人工智能是包括十分广泛的科学，它由不同的领域组成，如机器学习，计算机视觉等等，总的说来，人工智能研究的一个主要目标是使机器能够胜任一些通常需要人类智能才能完成的复杂任务。</textarea>
         </div>
+        
+        <div class="form-group">
+            <label>API选择</label>
+            <div>
+                <input type="radio" id="summarize" name="apiType" value="summarize" checked>
+                <label for="summarize">摘要生成</label>
+                
+                <input type="radio" id="translate" name="apiType" value="translate">
+                <label for="translate">文本翻译</label>
+            </div>
+        </div>
+        
+        <button onclick="callApi()">处理文本</button>
     </div>
     
-    <div>
-        <h2>API地址</h2>
-        <input type="text" id="apiUrl" value="http://localhost:3002/api/" style="width: 100%;">
+    <!-- 小说爬取部分 -->
+    <div class="api-section">
+        <h2>小说爬取</h2>
+        <div class="form-group">
+            <label>小说目录页URL</label>
+            <input type="text" id="novelUrl" placeholder="请输入小说目录页URL">
+        </div>
+        
+        <div class="form-group">
+            <label>小说名称</label>
+            <input type="text" id="novelName" placeholder="请输入小说名称">
+        </div>
+        
+        <button onclick="crawlNovel()">开始爬取</button>
     </div>
     
-    <div style="margin-top: 20px;">
-        <button id="submitBtn" onclick="callApi()">发送请求</button>
+    <div class="api-section">
+        <h2>API地址配置</h2>
+        <div class="form-group">
+            <label>API基础URL</label>
+            <input type="text" id="apiUrl" value="http://localhost:3002/api/" style="width: 100%;">
+        </div>
     </div>
     
     <div id="status"></div>
@@ -96,9 +148,10 @@
         }
 
         function setLoading(isLoading) {
-            const button = document.getElementById('submitBtn');
-            button.disabled = isLoading;
-            button.textContent = isLoading ? '请求中...' : '发送请求';
+            const buttons = document.getElementsByTagName('button');
+            for (let button of buttons) {
+                button.disabled = isLoading;
+            }
         }
 
         async function sleep(ms) {
@@ -149,7 +202,7 @@
                 console.log('请求数据:', JSON.stringify(requestBody, null, 2));
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
                 
                 const response = await fetch(apiUrl, {
                     method: 'POST',
@@ -197,6 +250,62 @@
                 resultElement.innerHTML = `请求出错: ${error.message}`;
                 resultElement.className = 'error';
                 updateStatus('请求失败', true);
+            } finally {
+                isRequesting = false;
+                setLoading(false);
+            }
+        }
+
+        async function crawlNovel() {
+            if (isRequesting) return;
+            isRequesting = true;
+            setLoading(true);
+            
+            const novelUrl = document.getElementById('novelUrl').value;
+            const novelName = document.getElementById('novelName').value;
+            
+            if (!novelUrl || !novelName) {
+                alert('请输入小说URL和名称');
+                isRequesting = false;
+                setLoading(false);
+                return;
+            }
+            
+            const baseUrl = document.getElementById('apiUrl').value;
+            const apiUrl = `${baseUrl}crawl`;
+            
+            const resultElement = document.getElementById('result');
+            resultElement.innerHTML = '爬取中，请耐心等待...';
+            resultElement.className = '';
+            updateStatus('正在爬取小说...');
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        url: novelUrl,
+                        novelName: novelName
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    console.log('爬取成功:', data);
+                    const downloadUrl = new URL(data.data.downloadUrl, window.location.origin).href;
+                    resultElement.innerHTML = `爬取成功！\n\n下载链接：<a href="${downloadUrl}" class="download-link" target="_blank">点击下载 ${data.data.novelName}.txt</a>`;
+                    updateStatus('爬取完成');
+                } else {
+                    throw new Error(data.error || data.message || '爬取失败');
+                }
+            } catch (error) {
+                console.error('爬取错误:', error);
+                resultElement.innerHTML = `爬取失败: ${error.message}`;
+                resultElement.className = 'error';
+                updateStatus('爬取失败', true);
             } finally {
                 isRequesting = false;
                 setLoading(false);
