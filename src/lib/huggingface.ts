@@ -43,9 +43,9 @@ interface ApiErrorResponse {
 
 // 默认API请求配置
 const DEFAULT_REQUEST_OPTIONS: ApiRequestOptions = {
-  timeout: 30000, // 30秒超时
-  retries: 3,     // 最多重试3次
-  delay: 2000     // 重试间隔2秒
+  timeout: 60000, // 增加到60秒超时
+  retries: 5,     // 增加到5次重试
+  delay: 3000     // 增加到3秒重试间隔
 };
 
 // 设置备用模型映射
@@ -127,7 +127,7 @@ async function withRetry<T>(
   fn: () => Promise<T>, 
   options: ApiRequestOptions = DEFAULT_REQUEST_OPTIONS
 ): Promise<T> {
-  const { retries = 3, delay = 2000, timeout = 30000 } = options;
+  const { retries = 5, delay = 3000, timeout = 60000 } = options;
   
   let lastError: Error;
   
@@ -143,7 +143,7 @@ async function withRetry<T>(
       // 添加超时控制
       return await withTimeout(fn(), timeout);
     } catch (error) {
-      lastError = parseApiError(error);
+      lastError = parseApiError(error as Error);
       console.error(`尝试 ${attempt + 1}/${retries + 1} 失败:`, lastError.message);
       
       // 检查是否是部署错误，如果是则可能需要尝试不同的模型而不是继续重试
