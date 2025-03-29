@@ -1,12 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import * as fs from 'fs';
-import * as path from 'path';
-import { promisify } from 'util';
 import https from 'https';
-
-const writeFileAsync = promisify(fs.writeFile);
-const mkdirAsync = promisify(fs.mkdir);
 
 export interface NovelChapter {
   title: string;
@@ -23,7 +17,6 @@ export interface NovelCrawlerOptions {
 export class NovelCrawler {
   private baseUrl: string;
   private novelName: string;
-  private outputDir: string;
   private concurrentLimit: number;
   private chunkSize: number;
   private userAgents: string[] = [
@@ -36,7 +29,6 @@ export class NovelCrawler {
   constructor(baseUrl: string, novelName: string, options?: NovelCrawlerOptions) {
     this.baseUrl = this.normalizeUrl(baseUrl.trim());
     this.novelName = novelName.trim();
-    this.outputDir = path.join(process.cwd(), 'public', 'downloads');
     this.concurrentLimit = options?.concurrentLimit || 5;
     this.chunkSize = options?.chunkSize || 20;
   }
@@ -558,12 +550,9 @@ export class NovelCrawler {
     }
   }
 
-  public async crawl(): Promise<string> {
+  public async crawl(): Promise<{ content: string; filename: string }> {
     try {
       console.log(`开始爬取小说: ${this.novelName}`);
-      
-      // 创建下载目录
-      await mkdirAsync(this.outputDir, { recursive: true });
       
       // 获取所有章节链接
       const links = await this.getChapterLinks();
@@ -638,9 +627,6 @@ export class NovelCrawler {
         chapters.push(...validChapters);
         failedChapters += failedCount;
         
-        // 保存进度
-        await this.saveProgress(chapters);
-        
         // 如果连续失败次数过多，终止爬取
         if (failedChapters > links.length * 0.2) { // 允许最多20%的章节失败
           throw new Error('失败章节数过多，请检查网站是否有反爬虫机制');
@@ -662,38 +648,20 @@ export class NovelCrawler {
       // 生成文件名
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `${this.novelName}_${timestamp}.txt`;
-      const filepath = path.join(this.outputDir, filename);
-      
-      // 写入文件
-      await writeFileAsync(filepath, content, 'utf8');
       
       console.log(`爬取完成，共 ${chapters.length} 章，失败 ${failedChapters} 章`);
       
-      // 返回相对路径
-      return `/downloads/${filename}`;
+      // 返回内容和文件名
+      return {
+        content,
+        filename
+      };
     } catch (error) {
       console.error('爬取失败:', error);
       if (error instanceof Error) {
         throw new Error(`爬取失败: ${error.message}`);
       }
       throw new Error('爬取失败: 未知错误');
-    }
-  }
-
-  private async saveProgress(chapters: NovelChapter[]): Promise<void> {
-    try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `${this.novelName}_progress_${timestamp}.txt`;
-      const filepath = path.join(this.outputDir, filename);
-      
-      const content = chapters
-        .map(chapter => `${chapter.title}\n\n${chapter.content}\n\n`)
-        .join('\n' + '='.repeat(50) + '\n\n');
-      
-      await writeFileAsync(filepath, content, 'utf8');
-      console.log(`已保存进度至: ${filename}`);
-    } catch (error) {
-      console.error('保存进度失败:', error);
     }
   }
 
@@ -764,4 +732,4 @@ export class NovelCrawler {
       throw new Error(`URL检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   }
-} 
+}

@@ -103,53 +103,61 @@
         }
 
         async function crawlNovel() {
-            if (isRequesting) return;
-            
-            const novelUrl = document.getElementById('novelUrl').value.trim();
-            const novelName = document.getElementById('novelName').value.trim();
-            
-            if (!novelUrl || !novelName) {
-                alert('请输入小说URL和名称');
-                return;
-            }
-            
-            isRequesting = true;
-            setLoading(true);
-            
+            const urlInput = document.getElementById('novelUrl');
+            const nameInput = document.getElementById('novelName');
             const resultElement = document.getElementById('result');
-            resultElement.innerHTML = '爬取中，请耐心等待...';
-            resultElement.className = '';
-            updateStatus('正在爬取小说...');
+            const statusElement = document.getElementById('status');
             
             try {
+                const url = urlInput.value.trim();
+                const novelName = nameInput.value.trim();
+                
+                if (!url || !novelName) {
+                    throw new Error('请输入URL和小说名称');
+                }
+                
+                statusElement.textContent = '正在爬取...';
+                statusElement.className = '';
+                
                 const response = await fetch('/api/crawl', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        url: novelUrl,
-                        novelName: novelName
-                    })
+                    body: JSON.stringify({ url, novelName }),
                 });
                 
                 const data = await response.json();
                 
-                if (response.ok) {
-                    console.log('爬取成功:', data);
-                    resultElement.innerHTML = `爬取成功！\n\n下载链接：<a href="${data.data.downloadUrl}" class="download-link" target="_blank">点击下载 ${data.data.novelName}.txt</a>`;
-                    updateStatus('爬取完成');
-                } else {
+                if (!response.ok) {
                     throw new Error(data.error || data.message || '爬取失败');
                 }
+                
+                // 创建Blob对象
+                const blob = new Blob([data.content], { type: 'text/plain;charset=utf-8' });
+                const downloadUrl = URL.createObjectURL(blob);
+                
+                // 创建下载链接
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = data.filename;
+                downloadLink.textContent = '点击下载小说';
+                downloadLink.className = 'download-link';
+                
+                // 显示结果
+                resultElement.innerHTML = '';
+                resultElement.appendChild(downloadLink);
+                statusElement.textContent = '爬取完成！';
+                statusElement.className = 'success';
+                
+                // 清理URL对象
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
             } catch (error) {
                 console.error('爬取错误:', error);
-                resultElement.innerHTML = `爬取失败: ${error.message}`;
+                resultElement.textContent = `爬取失败: ${error.message}`;
                 resultElement.className = 'error';
-                updateStatus('爬取失败', true);
-            } finally {
-                isRequesting = false;
-                setLoading(false);
+                statusElement.textContent = '爬取失败';
+                statusElement.className = 'error';
             }
         }
     </script>

@@ -10,30 +10,20 @@ export default async function handler(
   }
 
   try {
-    const { url, novelName, concurrentLimit, chunkSize } = req.body;
+    const { url, novelName } = req.body;
 
     if (!url || !novelName) {
       return res.status(400).json({ error: '缺少必要参数' });
     }
 
-    // 验证并发参数
-    const concurrentLimitNum = Number(concurrentLimit) || 5;
-    const chunkSizeNum = Number(chunkSize) || 20;
-
-    // 限制参数范围
-    const validConcurrentLimit = Math.min(Math.max(1, concurrentLimitNum), 10);
-    const validChunkSize = Math.min(Math.max(10, chunkSizeNum), 100);
-
-    console.log(`爬取配置: 并发数=${validConcurrentLimit}, 批次大小=${validChunkSize}`);
-
-    const crawler = new NovelCrawler(url, novelName, {
-      concurrentLimit: validConcurrentLimit,
-      chunkSize: validChunkSize
-    });
-    
+    const crawler = new NovelCrawler(url, novelName);
     const result = await crawler.crawl();
 
-    res.status(200).json({ success: true, downloadPath: result });
+    res.status(200).json({ 
+      success: true,
+      content: result.content,
+      filename: result.filename
+    });
   } catch (error) {
     console.error('爬虫错误:', error);
     if (error instanceof Error) {
