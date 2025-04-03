@@ -1,4 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest, NextResponse } from 'next/server';
 
 // 允许的源列表
 const allowedOrigins = [
@@ -43,4 +44,27 @@ export async function cors(
     res.status(200).end();
     return;
   }
-} 
+}
+
+export function getLocale(request: NextRequest): string {
+  // Get locale from Accept-Language header or query parameter
+  const acceptLang = request.headers.get('Accept-Language') || '';
+  const queryLang = request.nextUrl.searchParams.get('lang');
+  
+  // Check if Japanese is preferred
+  if (queryLang === 'ja' || acceptLang.startsWith('ja')) {
+    return 'ja';
+  }
+  
+  // Default to Chinese
+  return 'zh';
+}
+
+export function withLocale(handler: Function) {
+  return async (request: NextRequest) => {
+    const locale = getLocale(request);
+    // Add locale to request context
+    (request as any).locale = locale;
+    return handler(request);
+  };
+}

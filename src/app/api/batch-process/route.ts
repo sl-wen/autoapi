@@ -3,7 +3,6 @@ import { HuggingFaceService, Language } from '@/lib/huggingface';
 
 // 定义错误类型接口
 interface ApiError extends Error {
-  message: string;
   code?: string;
   status?: number;
 }
@@ -34,7 +33,8 @@ interface BatchProcessRequest {
 
 // 验证语言类型
 function isValidLanguage(lang: string): lang is Language {
-  return ['auto', 'en', 'zh', 'fr', 'de', 'es', 'ru', 'ja', 'ko'].includes(lang);
+  const validLanguages: Language[] = ['auto', 'en', 'zh', 'fr', 'de', 'es', 'ru', 'ja', 'ko'];
+  return validLanguages.includes(lang as Language);
 }
 
 export async function POST(request: NextRequest) {
@@ -174,10 +174,10 @@ export async function POST(request: NextRequest) {
       } catch (error: unknown) {
         const articleError = error as ApiError;
         console.error(`处理文章 ${index + 1} 时出错:`, articleError);
-        errors.push(`文章 ${index + 1} 处理失败: ${articleError.message}`);
+        errors.push(`文章 ${index + 1} 処理失敗: ${articleError.message}`);
         results.push({
           originalText: article,
-          error: `处理失败: ${articleError.message}`
+          error: `処理失敗: ${articleError.message}`
         });
       }
     }
@@ -191,10 +191,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     const apiError = error as ApiError;
-    console.error('批量处理错误:', apiError);
+    console.error('バッチ処理エラー:', apiError);
     return NextResponse.json(
-      { error: `批量处理文章时发生错误: ${apiError.message}` },
+      { error: `バッチ処理中にエラーが発生しました: ${apiError.message}` },
       { status: 500 }
     );
   }
-} 
+}

@@ -48,6 +48,59 @@ const DEFAULT_REQUEST_OPTIONS: ApiRequestOptions = {
   delay: 3000     // 增加到3秒重试间隔
 };
 
+// 模型映射配置
+const MODELS: Record<ModelTask, Record<string, ModelConfig>> = {
+  'summarization': {
+    'bart-large-cnn': {
+      id: 'facebook/bart-large-cnn',
+      description: '英文摘要模型，适合新闻和文章摘要',
+      supportedLanguages: ['en'],
+      maxInputLength: 1024,
+    },
+    'pegasus': {
+      id: 'google/pegasus-xsum',
+      description: '英文摘要模型，生成更简洁的摘要',
+      supportedLanguages: ['en'],
+      maxInputLength: 1024,
+    },
+    'mt5': {
+      id: 'csebuetnlp/mT5_multilingual_XLSum',
+      description: '多语言摘要模型，支持多种语言',
+      supportedLanguages: ['en', 'zh', 'fr', 'de', 'es', 'ru'],
+      maxInputLength: 1024,
+    }
+  },
+  'translation': {
+    'en-to-zh': {
+      id: 'Helsinki-NLP/opus-mt-en-zh',
+      description: '英文到中文翻译模型',
+      supportedLanguages: ['en', 'zh'],
+    },
+    'zh-to-en': {
+      id: 'Helsinki-NLP/opus-mt-zh-en',
+      description: '中文到英文翻译模型',
+      supportedLanguages: ['zh', 'en'],
+    },
+    'multilingual': {
+      id: 'facebook/m2m100_418M',
+      description: '通用多语言翻译模型，支持多种语言',
+      supportedLanguages: ['auto', 'en', 'zh', 'fr', 'de', 'es', 'ru', 'ja', 'ko'],
+    }
+  },
+  'text-generation': {
+    'gpt2': {
+      id: 'gpt2',
+      description: '英文文本生成模型',
+      supportedLanguages: ['en'],
+    },
+    'bloom': {
+      id: 'bigscience/bloom',
+      description: '多语言大型语言模型',
+      supportedLanguages: ['en', 'zh', 'fr', 'de', 'es', 'ru'],
+    }
+  }
+};
+
 // 设置备用模型映射
 const FALLBACK_MODELS = {
   summarization: [
@@ -113,7 +166,7 @@ async function withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> 
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error(`请求超时 (${timeout}ms)`)), timeout);
   });
-  
+
   return Promise.race([promise, timeoutPromise]);
 }
 
@@ -163,95 +216,6 @@ async function withRetry<T>(
   // 这一行应该不会执行到，但TypeScript要求返回值
   throw lastError!;
 }
-
-// 模型映射配置
-const MODELS: Record<ModelTask, Record<string, ModelConfig>> = {
-  'summarization': {
-    'bart-large-cnn': {
-      id: 'facebook/bart-large-cnn',
-      description: '英文摘要模型，适合新闻和文章摘要',
-      supportedLanguages: ['en'],
-      maxInputLength: 1024,
-    },
-    'pegasus': {
-      id: 'google/pegasus-xsum',
-      description: '英文摘要模型，生成更简洁的摘要',
-      supportedLanguages: ['en'],
-      maxInputLength: 1024,
-    },
-    'mt5': {
-      id: 'csebuetnlp/mT5_multilingual_XLSum',
-      description: '多语言摘要模型，支持多种语言',
-      supportedLanguages: ['en', 'zh', 'fr', 'de', 'es', 'ru'],
-      maxInputLength: 1024,
-    },
-    'bert-chinese': {
-      id: 'hfl/chinese-roberta-wwm-ext',
-      description: '中文BERT模型，可用于提取式摘要',
-      supportedLanguages: ['zh'],
-      maxInputLength: 512,
-    },
-    'uer-pegasus': {
-      id: 'IDEA-CCNL/Randeng-Pegasus-523M-Summary-Chinese',
-      description: '中文摘要模型，适合中文内容直接摘要',
-      supportedLanguages: ['zh'],
-      maxInputLength: 1024,
-    },
-    'chinese-distilbart': {
-      id: 'fnlp/bart-base-chinese',
-      description: '中文BART模型，适合中文内容摘要',
-      supportedLanguages: ['zh'],
-      maxInputLength: 1024,
-    },
-    'chinese-t5': {
-      id: 'uer/t5-base-chinese-cluecorpussmall',
-      description: '中文T5模型，适合中文文本生成和摘要',
-      supportedLanguages: ['zh'],
-      maxInputLength: 1024,
-    },
-    'distilbart-cnn': {
-      id: 'sshleifer/distilbart-cnn-12-6',
-      description: '轻量级英文摘要模型，速度更快',
-      supportedLanguages: ['en'],
-      maxInputLength: 1024,
-    },
-    't5-base': {
-      id: 'google/flan-t5-base',
-      description: '基于T5的通用文本处理模型，有良好的摘要能力',
-      supportedLanguages: ['en'],
-      maxInputLength: 1024, 
-    },
-  },
-  'translation': {
-    'en-to-zh': {
-      id: 'Helsinki-NLP/opus-mt-en-zh',
-      description: '英文到中文翻译模型',
-      supportedLanguages: ['en', 'zh'],
-    },
-    'zh-to-en': {
-      id: 'Helsinki-NLP/opus-mt-zh-en',
-      description: '中文到英文翻译模型',
-      supportedLanguages: ['zh', 'en'],
-    },
-    'multilingual': {
-      id: 'facebook/m2m100_418M',
-      description: '通用多语言翻译模型，支持多种语言',
-      supportedLanguages: ['auto', 'en', 'zh', 'fr', 'de', 'es', 'ru', 'ja', 'ko'],
-    },
-  },
-  'text-generation': {
-    'gpt2': {
-      id: 'gpt2',
-      description: '英文文本生成模型',
-      supportedLanguages: ['en'],
-    },
-    'bloom': {
-      id: 'bigscience/bloom',
-      description: '多语言大型语言模型',
-      supportedLanguages: ['en', 'zh', 'fr', 'de', 'es', 'ru'],
-    },
-  },
-};
 
 export class HuggingFaceService {
   private inference: HfInference;
@@ -359,8 +323,6 @@ export class HuggingFaceService {
       } catch (error) {
         lastError = parseApiError(error as Error);
         console.error(`模型 ${model} 失败:`, lastError.message);
-        
-        // 如果不是部署或超时错误，可能是其他原因，尝试不同模型
         continue;
       }
     }
@@ -393,6 +355,9 @@ export class HuggingFaceService {
       fallbackModels.unshift('Helsinki-NLP/opus-mt-en-zh');
     } else if (sourceLanguage === 'zh' && targetLanguage === 'en') {
       fallbackModels.unshift('Helsinki-NLP/opus-mt-zh-en');
+    } else if (sourceLanguage === 'ja' || targetLanguage === 'ja') {
+      fallbackModels.unshift('Helsinki-NLP/opus-mt-ja-en');
+      fallbackModels.unshift('Helsinki-NLP/opus-mt-en-ja');
     } else {
       fallbackModels.unshift('facebook/m2m100_418M');
     }
@@ -400,10 +365,16 @@ export class HuggingFaceService {
     // 自动检测语言
     if (sourceLanguage === 'auto') {
       const isChinese = HuggingFaceService.isChineseText(text);
+      const isJapanese = HuggingFaceService.isJapaneseText(text);
+      
       if (isChinese && targetLanguage === 'en') {
         fallbackModels.unshift('Helsinki-NLP/opus-mt-zh-en');
       } else if (!isChinese && targetLanguage === 'zh') {
         fallbackModels.unshift('Helsinki-NLP/opus-mt-en-zh');
+      } else if (isJapanese && targetLanguage === 'en') {
+        fallbackModels.unshift('Helsinki-NLP/opus-mt-ja-en');
+      } else if (!isJapanese && targetLanguage === 'ja') {
+        fallbackModels.unshift('Helsinki-NLP/opus-mt-en-ja');
       }
     }
     
@@ -418,20 +389,38 @@ export class HuggingFaceService {
       
       try {
         const result = await withRetry(async () => {
+          // For m2m100 models, we need to use a different request method
+          if (sourceLanguage !== 'auto' && modelId.includes('m2m100')) {
+            return this.inference.request({
+              model: modelId,
+              inputs: text,
+              task: 'translation'
+            });
+          }
+          // For other models, use the standard translation interface
           return this.inference.translation({
             model: modelId,
-            inputs: text,
-            parameters: sourceLanguage !== 'auto' && modelId.includes('m2m100') ? {
-              src_lang: sourceLanguage.toUpperCase(),
-              tgt_lang: targetLanguage.toUpperCase()
-            } : undefined
+            inputs: text
           });
         }, this.requestOptions);
         
-        return { translation_text: result.translation_text };
+        // Type guard for translation response
+        const isTranslationResult = (res: unknown): res is { translation_text: string } => {
+          return typeof res === 'object' && res !== null && 'translation_text' in res &&
+                 typeof (res as any).translation_text === 'string';
+        };
+
+        // Handle different response formats
+        if (isTranslationResult(result)) {
+          return { translation_text: result.translation_text };
+        } else if (Array.isArray(result) && result.length > 0 && isTranslationResult(result[0])) {
+          return { translation_text: result[0].translation_text };
+        }
+        
+        throw new Error('無効な翻訳結果形式');
       } catch (error) {
         lastError = parseApiError(error as Error);
-        console.error(`模型 ${modelId} 失败:`, lastError.message);
+        console.error(`モデル ${modelId} 失敗:`, lastError.message);
         continue;
       }
     }
@@ -439,7 +428,7 @@ export class HuggingFaceService {
     // 如果所有模型都失败，返回错误提示
     const shortText = text.length > 50 ? text.slice(0, 50) + '...' : text;
     return { 
-      translation_text: `翻译失败，服务暂时不可用(${lastError?.message || '未知错误'})。原文: ${shortText}` 
+      translation_text: `翻訳に失敗しました。サービスが一時的に利用できません(${lastError?.message || '不明なエラー'})。原文: ${shortText}` 
     };
   }
 
@@ -453,10 +442,19 @@ export class HuggingFaceService {
   }
 
   /**
+   * 检查文本是否包含日文字符
+   * @param text 要检查的文本
+   * @returns 是否包含日文字符
+   */
+  public static isJapaneseText(text: string): boolean {
+    return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+  }
+
+  /**
    * 获取HuggingFace客户端实例
    * @returns HuggingFace客户端实例
    */
   public getClient(): HfInference {
     return this.inference;
   }
-} 
+}

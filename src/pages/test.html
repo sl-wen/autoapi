@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>小说爬虫测试</title>
+    <title>小说爬虫测试 (并发版)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -212,7 +212,7 @@
                 <label for="concurrentLimit">
                     并发数：
                     <span class="tooltip">?
-                        <span class="tooltiptext">设置同时爬取的章节数量，建议不超过10</span>
+                        <span class="tooltiptext" data-i18n="concurrentLimitTooltip">设置同时爬取的章节数量，建议不超过10</span>
                     </span>
                 </label>
                 <input type="number" id="concurrentLimit" min="1" max="10" value="5">
@@ -221,7 +221,7 @@
                 <label for="chunkSize">
                     批次大小：
                     <span class="tooltip">?
-                        <span class="tooltiptext">每批处理的章节数量，建议20-50之间</span>
+                        <span class="tooltiptext" data-i18n="chunkSizeTooltip">每批处理的章节数量，建议20-50之间</span>
                     </span>
                 </label>
                 <input type="number" id="chunkSize" min="10" max="100" value="20">
@@ -229,8 +229,8 @@
         </div>
         
         <div class="button-row">
-            <button onclick="checkUrl()" id="checkUrlButton" class="secondary">检查URL可用性</button>
-            <button onclick="crawlNovel()" id="crawlButton">开始并发爬取</button>
+            <button onclick="checkUrl()" id="checkUrlButton" class="secondary" data-i18n="checkUrl">检查URL可用性</button>
+            <button onclick="crawlNovel()" id="crawlButton" data-i18n="startCrawl">开始并发爬取</button>
         </div>
         
         <div id="status"></div>
@@ -241,21 +241,68 @@
         <pre id="debugInfo"></pre>
         
         <div class="examples">
-            <h3>推荐小说网站</h3>
+            <h3 data-i18n="recommendedSites">推荐小说网站</h3>
             <ul>
-                <li><a onclick="fillExample('https://www.xs5200.net/44_44108/', '氪金武圣')">氪金武圣</a> (完结小说)</li>
-                <li><a onclick="fillExample('https://www.xs5200.net/44_44950/', '重生我真富贵命')">重生我真富贵命</a> (热门小说)</li>
-                <li><a onclick="fillExample('https://www.xs5200.net/44_44969/', '我是科技高富帅')">我是科技高富帅</a> (热门小说)</li>
+                <li><a onclick="fillExample('https://www.xs5200.net/44_44108/', '氪金武圣')">氪金武圣</a> (<span data-i18n="completedNovel">完結小説</span>)</li>
+                <li><a onclick="fillExample('https://www.xs5200.net/44_44950/', '重生我真富贵命')">重生我真富贵命</a> (<span data-i18n="popularNovel">人気小説</span>)</li>
+                <li><a onclick="fillExample('https://www.xs5200.net/44_44969/', '我是科技高富帅')">我是科技高富帅</a> (<span data-i18n="popularNovel">人気小説</span>)</li>
             </ul>
         </div>
     </div>
-
     <script>
+        // Add i18n support
+        const messages = {
+            ja: {
+                crawling: 'クローリング中...',
+                checkingUrl: 'URLを確認中...',
+                error: 'エラー',
+                missingInfo: '情報を入力してください',
+                downloadText: 'ダウンロード',
+                success: '成功',
+                failed: '失敗',
+                checkUrl: 'URLの確認',
+                startCrawl: 'クローリング開始',
+                concurrentLimitTooltip: '同時にクローリングする章の数（10以下推奨）',
+                chunkSizeTooltip: '一度に処理する章の数（20-50推奨）',
+                recommendedSites: 'おすすめサイト',
+                completedNovel: '完結小説',
+                popularNovel: '人気小説'
+            },
+            zh: {
+                crawling: '爬取中...',
+                checkingUrl: '正在检查URL...',
+                error: '错误',
+                missingInfo: '请输入信息',
+                downloadText: '下载',
+                success: '成功',
+                failed: '失败',
+                checkUrl: '检查URL',
+                startCrawl: '开始爬取',
+                concurrentLimitTooltip: '同时爬取的章节数量，建议不超过10',
+                chunkSizeTooltip: '每批处理的章节数量，建议20-50之间',
+                recommendedSites: '推荐网站',
+                completedNovel: '完结小说',
+                popularNovel: '热门小说'
+            }
+        };
+
+        let lang = 'zh';
+
+        // Update UI language
+        function updateLanguage() {
+            document.querySelectorAll('[data-i18n]').forEach(element => {
+                const key = element.getAttribute('data-i18n');
+                if (key && messages[lang][key]) {
+                    element.textContent = messages[lang][key];
+                }
+            });
+        }
+
         function fillExample(url, name) {
             document.getElementById('url').value = url;
             document.getElementById('novelName').value = name;
         }
-        
+
         async function checkUrl() {
             const url = document.getElementById('url').value.trim();
             const button = document.getElementById('checkUrlButton');
@@ -265,7 +312,7 @@
             if (!url) {
                 status.style.display = 'block';
                 status.className = 'error';
-                status.textContent = '请填写URL';
+                status.textContent = messages[lang].missingInfo;
                 return;
             }
             
@@ -273,36 +320,46 @@
                 button.disabled = true;
                 status.style.display = 'block';
                 status.className = 'loading';
-                status.textContent = '正在检查URL可用性...';
+                status.textContent = messages[lang].checkingUrl;
                 debugInfo.style.display = 'none';
                 
-                // 创建一个只检查URL的请求
                 const response = await fetch('/api/check-url', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Accept-Language': lang
                     },
                     body: JSON.stringify({ url })
                 });
                 
-                const result = await response.json();
-                console.log('检查结果:', result);
+                let result;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    try {
+                        result = await response.json();
+                    } catch (jsonError) {
+                        console.error('JSON解析错误:', jsonError);
+                        throw new Error(messages[lang].error + ': ' + jsonError.message);
+                    }
+                } else {
+                    const text = await response.text();
+                    throw new Error(messages[lang].error + ': ' + text);
+                }
                 
                 if (!response.ok) {
-                    throw new Error(result.error || '检查失败');
+                    throw new Error(result.error || messages[lang].failed);
                 }
                 
                 if (result.success) {
                     status.className = 'success';
-                    status.textContent = `URL检查成功! 找到 ${result.chapterCount || 0} 个章节`;
+                    status.textContent = `${messages[lang].success}! ${result.chapterCount || 0} 章`;
                     
                     if (result.novelName) {
-                        // 自动设置小说名称
                         document.getElementById('novelName').value = result.novelName;
                     }
                 } else {
                     status.className = 'warning';
-                    status.textContent = '无法验证URL。您可以尝试直接爬取，但可能会失败。';
+                    status.textContent = messages[lang].error;
                 }
                 
                 if (result.debug) {
@@ -310,13 +367,9 @@
                     debugInfo.style.display = 'block';
                 }
             } catch (error) {
-                console.error('检查错误:', error);
+                console.error(messages[lang].error + ':', error);
                 status.className = 'error';
-                status.textContent = `检查失败: ${error.message}`;
-                
-                if (error.message.includes('获取章节列表失败') || error.message.includes('无法分析网站结构')) {
-                    status.textContent += '\n请检查URL是否正确或尝试其他网站。';
-                }
+                status.textContent = `${messages[lang].failed}: ${error.message}`;
             } finally {
                 button.disabled = false;
             }
@@ -337,21 +390,7 @@
             if (!url || !novelName) {
                 status.style.display = 'block';
                 status.className = 'error';
-                status.textContent = '请填写完整信息';
-                return;
-            }
-
-            if (concurrentLimit < 1 || concurrentLimit > 10) {
-                status.style.display = 'block';
-                status.className = 'error';
-                status.textContent = '并发数必须在1-10之间';
-                return;
-            }
-
-            if (chunkSize < 10 || chunkSize > 100) {
-                status.style.display = 'block';
-                status.className = 'error';
-                status.textContent = '批次大小必须在10-100之间';
+                status.textContent = messages[lang].missingInfo;
                 return;
             }
 
@@ -359,7 +398,7 @@
                 button.disabled = true;
                 status.style.display = 'block';
                 status.className = 'loading';
-                status.textContent = '正在并发爬取中...这可能需要几分钟，请耐心等待';
+                status.textContent = messages[lang].crawling;
                 progressContainer.style.display = 'block';
                 progressBar.style.width = '10%';
                 downloadLink.style.display = 'none';
@@ -369,6 +408,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Accept-Language': lang
                     },
                     body: JSON.stringify({ 
                         url, 
@@ -378,49 +418,51 @@
                     })
                 });
 
-                const result = await response.json();
-                console.log('爬取结果:', result);
-                
-                // 进度显示
+                let result;
+                try {
+                    result = await response.json();
+                } catch (jsonError) {
+                    throw new Error(messages[lang].error + ': ' + jsonError.message);
+                }
+
                 progressBar.style.width = '100%';
 
                 if (!response.ok) {
-                    throw new Error(result.error || '爬取失败');
+                    throw new Error(result.error || messages[lang].failed);
                 }
 
-                if (result.success && result.downloadPath) {
-                    status.className = 'success';
-                    status.textContent = '爬取成功！';
-                    downloadLink.style.display = 'block';
-                    downloadLink.innerHTML = `<a href="${result.downloadPath}" download="${novelName}.txt">点击下载 ${novelName}.txt</a>`;
+                if (result.success) {
+                    if (result.content && result.filename) {
+                        const blob = new Blob([result.content], { type: 'text/plain;charset=utf-8' });
+                        const downloadUrl = URL.createObjectURL(blob);
+                        downloadLink.style.display = 'block';
+                        downloadLink.innerHTML = `<a href="${downloadUrl}" download="${result.filename}">${messages[lang].downloadText} ${result.filename}</a>`;
+                        status.className = 'success';
+                        status.textContent = messages[lang].success;
+                        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+                    } else {
+                        throw new Error(messages[lang].failed);
+                    }
                 } else {
-                    throw new Error('未获取到下载链接');
+                    throw new Error(messages[lang].failed + ': ' + (result.error || messages[lang].error));
                 }
             } catch (error) {
-                console.error('爬取错误:', error);
-                status.className = 'error';
-                status.textContent = `爬取失败: ${error.message}`;
+                console.error(messages[lang].error + ':', error);
                 progressBar.style.width = '0%';
-                
-                // 显示详细错误信息
-                const errorMsg = error.message || '未知错误';
-                debugInfo.textContent = `错误详情: ${errorMsg}`;
+                status.className = 'error';
+                status.textContent = `${messages[lang].failed}: ${error.message}`;
                 debugInfo.style.display = 'block';
-                
-                // 尝试恢复
-                if (errorMsg.includes('404') || errorMsg.includes('未找到任何章节链接')) {
-                    status.textContent += '\n尝试使用其他网站或检查URL是否正确。';
-                }
-                if (errorMsg.includes('验证码') || errorMsg.includes('访问受限')) {
-                    status.textContent += '\n网站可能有反爬机制，请稍后再试。';
-                }
-                if (errorMsg.includes('并发')) {
-                    status.textContent += '\n尝试减少并发数和批次大小。';
-                }
+                debugInfo.textContent = error.message;
             } finally {
                 button.disabled = false;
+                if (progressBar.style.width !== '100%') {
+                    progressContainer.style.display = 'none';
+                }
             }
         }
+
+        // Initialize UI text
+        document.addEventListener('DOMContentLoaded', updateLanguage);
     </script>
 </body>
-</html> 
+</html>

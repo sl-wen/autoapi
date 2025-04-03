@@ -264,11 +264,16 @@ export async function POST(request: NextRequest) {
             console.error('摘要翻译错误:', translationError);
             // 尝试直接使用翻译模型
             try {
-              const fallbackResult = await hfClient.translation({
+              const fallbackResult = await hfClient.request({
                 model: 'Helsinki-NLP/opus-mt-en-zh',
-                inputs: summary
+                inputs: summary,
+                task: 'translation'
               });
-              summary = fallbackResult.translation_text;
+              // Handle array response from direct client translation
+              const translatedText = Array.isArray(fallbackResult) 
+                ? (fallbackResult[0] as { translation_text: string })?.translation_text 
+                : (fallbackResult as { translation_text: string })?.translation_text;
+              summary = translatedText || summary;
             } catch (error) {
               const backupError = error as ApiError;
               console.error('备用翻译也失败:', backupError);
